@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common-game = { path = "C:/Users/pietr/OneDrive/Desktop/CiucFork/Ciuc_fork/app/game" }
+common-game = { path = "../Ciuc_fork/app/game" }
 
 
 
 [[bin]]
 name = "Ciuc_ap_2025"
-path = "main.rs"
+path = "./src/main.rs"

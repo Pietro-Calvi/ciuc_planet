@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 use std::sync::mpsc;
 use common_game::components::planet::{Planet, PlanetAI, PlanetState, PlanetType};
-use common_game::components::resource::{Combinator, Generator, BasicResorceType};
+use common_game::components::resource::{Combinator, Generator, BasicResourceType};
 use common_game::components::rocket::Rocket;
 use common_game::protocols::messages;
+use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator};
 
 struct SafeState;
 struct StatisticState;
@@ -27,7 +28,7 @@ impl AI<StatisticState> {
 }
 
 
-impl PlanetAI for AI {
+impl<T: std::marker::Send> PlanetAI for AI<T> {
     fn handle_orchestrator_msg(
         &mut self,
         state: &mut PlanetState,
@@ -37,23 +38,24 @@ impl PlanetAI for AI {
     ) -> Option<messages::PlanetToOrchestrator> {
 
         match msg {
-            messages::OrchestratorToPlanet::Sunray() => {
+            messages::OrchestratorToPlanet::Sunray(..) => {
                 //Se ho una cella scarica la carico
 
                 // aggiorno il numero di sunray
 
                 //se sono in stato safe e ho abbastanza dati entro in stato statistico
             }
-            messages::OrchestratorToPlanet::InternalStateRequest() => {
+            messages::OrchestratorToPlanet::InternalStateRequest => {
                 //Restituisco state
             }
-            messages::OrchestratorToPlanet::IncomingExplorerRequest(_) => {
+            messages::OrchestratorToPlanet::IncomingExplorerRequest { explorer_id: _, new_mpsc_sender: _ } => {
                 //Sostituisco il nuovo sender e gli restituisco il mio
             }
-            messages::OrchestratorToPlanet::OutgoingExplorerRequest(_) => {
+            messages::OrchestratorToPlanet::OutgoingExplorerRequest { explorer_id: _ } => {
                 //Elimino il mio sender per explorer
             }
 
+            _ => {}
         }
 
         None
@@ -68,20 +70,22 @@ impl PlanetAI for AI {
     ) -> Option<messages::PlanetToExplorer> {
 
         match msg {
-            messages::ExplorerToPlanet::SupportedResourceRequest (msg) => {
+            messages::ExplorerToPlanet::SupportedResourceRequest { explorer_id: _ } => {
                 //Restituire Carbonio
             }
-            messages::ExplorerToPlanet::SupportedCombinationRequest(msg) => {
+            messages::ExplorerToPlanet::SupportedCombinationRequest { explorer_id: _ } => {
                 //Restituire nessuna combination rule
             }
-            messages::ExplorerToPlanet::GenerateResourceRequest(msg) => {
+            messages::ExplorerToPlanet::GenerateResourceRequest { explorer_id: _, resource: _ } => {
                 //Controllare che la risorsa sia corretta
-                self.generate_carbon();
+
+                //LASCIALO
+                // self.generate_carbon();
             }
-            messages::ExplorerToPlanet::CombineResourceRequest(msg) => {
+            messages::ExplorerToPlanet::CombineResourceRequest { explorer_id: _, msg: _ } => {
                 //Restituire il nulla
             }
-            messages::ExplorerToPlanet::AvailableEnergyCellRequest(msg) => {
+            messages::ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: _ } => {
                 //Restituire numero di energy cell available
             }
         }
@@ -116,21 +120,31 @@ pub fn create_planet(
     tx_orchestrator: mpsc::Sender<messages::PlanetToOrchestrator>,
     rx_explorer: mpsc::Receiver<messages::ExplorerToPlanet>,
     tx_explorer: mpsc::Sender<messages::PlanetToExplorer>,
-    id:u32
-) -> Planet<AI> {
-    let ai = AI {};
+    id: u32
+) -> Planet {
+    // crea l'AI concreto
+    let ai_concrete = AI::<SafeState> {
+        state: PhantomData,
+        number_explorers: 0,
+    };
+
+    // mettilo nello heap come trait object: Box<dyn PlanetAI>
+    let ai_box: Box<dyn PlanetAI> = Box::new(ai_concrete);
 
     let gen_rules = vec![BasicResourceType::Carbon];
     let comb_rules = vec![];
 
-    // Construct the planet and return yourit
+    // PASSA i singoli canali (non tuple) e l'AI boxed
     Planet::new(
         id,
         PlanetType::A,
-        ai,
+        ai_box,
         gen_rules,
         comb_rules,
         (rx_orchestrator, tx_orchestrator),
-        (rx_explorer, tx_explorer)
-    ).unwrap() // Don't call .unwrap()! You should do error checking instead.
+        rx_explorer
+    ).expect("Planet creation failed")
 }
+
+
+
