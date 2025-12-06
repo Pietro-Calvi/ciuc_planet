@@ -9,12 +9,18 @@ use common_game::components::sunray::Sunray;
 use common_game::protocols::messages;
 use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator};
 
-struct SafeState;
-struct StatisticState;
+
+//The state define the AI logic
+enum AIState
+{
+    SafeState, //The initial state, the world wait some data for change in StatisticState
+    StatisticState //The final state, the world use more cells when a asteroid is distant (esteem time)
+}
+
 
 // Group-defined AI struct
-pub struct AI<T> { /* your AI state here */
-    state: PhantomData<T>,
+pub struct CiucAI { /* your AI state here */
+    state: AIState,
     number_explorers: usize,
     count_asteroids: u32,
     count_sunrays: u32,
@@ -26,13 +32,121 @@ pub struct AI<T> { /* your AI state here */
 
 
 
+//funzioni di supporto per il calcolo della stima
+fn update_ema(prev: f64, sample: f64, alpha: f64) -> f64 {
+    alpha * sample + (1.0 - alpha) * prev
+}
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
 
-impl CiucAi for AI<SafeState> {
-    fn generate_carbon(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
-        let energy_cell_charged = planet_state.cells_iter().enumerate().map(|(i, cell)| { if cell.is_charged() {1} else {0} }).sum::<u32>();
-        match energy_cell_charged {
+
+
+impl CiucAI
+{
+
+    fn new() -> Self
+    {
+        CiucAI {
+            state: AIState::SafeState,
+            number_explorers: 0,
+            count_asteroids: 0,
+            count_sunrays: 0,
+            last_time_sunray: 0,
+            last_time_asteroid: 0,
+            estimate_asteroid_ms: 0.0,
+            estimate_sunray_ms: 0.0,
+        }
+    }
+
+    //--------FUNZIONI PRIVATE INTERNE-----------------
+
+    //funzioni per l'aggiornamento della stima sunray e asteroidi:
+    fn update_sunray_esteem(&mut self, now_ms: i64) {
+        if self.last_time_sunray > 0 {
+            let delta = (now_ms - self.last_time_sunray) as f64;
+            self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
+            self.count_sunrays += 1;
+        }
+        self.last_time_sunray = now_ms;
+    }
+    fn update_asteroid_esteem(&mut self, now_ms: i64) {
+        if self.last_time_asteroid > 0 {
+            let delta = (now_ms - self.last_time_asteroid) as f64;
+            self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
+            self.count_asteroids += 1;
+        }
+        self.last_time_asteroid = now_ms;
+    }
+
+    //Funzione per cambiare stato per ora cambia solo da safestate a stastisticstate
+    fn change_state(&mut self) -> Result<(),String>
+    {
+        let a = &self.state;
+        match a {
+            AIState::SafeState => {
+                self.state = AIState::StatisticState;
+                Ok(())
+            },
+            AIState::StatisticState => {
+                Err("Per ora non è previsto nessun cambiamento di stato".to_string())
+            },
+            _ => Err("Stato non riconosciuto".to_string())
+        }
+    }
+
+
+    //Funzione per costruisce un Rocket se si ha almeno una cella carica
+    fn build_rocket(&self, planet_state:&mut PlanetState) -> Result<(), String>
+    {
+        match planet_state.full_cell() {
+            None => {
+                Err("Non sono riuscito a creare il razzo".to_string())
+            },
+            Some((_cell, i)) => {
+                planet_state.build_rocket(i)
+            }
+        }
+    }
+
+    //Funzione per distruggere un asteroide (se non si ha il razzo si viene distrutti)
+    fn deflect_asteroid(&self, planet_state:&mut PlanetState) -> Option<Rocket>
+    {
+        if !planet_state.has_rocket() {
+            None
+        }
+        else {
+            let rocket = planet_state.take_rocket();
+            rocket
+        }
+    }
+
+
+    //Funzione per caricare una cella con un sunray
+    fn charge_cell_with_sunray(&mut self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
+    {
+        let result = planet_state.charge_cell(sunray);
+        match result {
+            None => {
+                Ok(())
+            },
+            Some(cell) => {
+                Err("Tutte le celle sono cariche".to_string())      //Ho tutte le celle cariche butto il sunray  (SE SI VA IN QUESTO CASO TANTE VOLTE SI PUò ANCHE IMPLEMENTARE UN AI CHE ALLORA GENERA' DI PIù!! (iIDEA PER IL FUTURO))
+            }
+        }
+    }
+
+
+    //------------------Funzioni per la modalità SAFE------------------------
+    fn generate_carbon_safe_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
+        let energy_cell_charged_len = planet_state.cells_iter().enumerate().map(|(i, cell)| { if cell.is_charged() {1} else {0} }).sum::<u32>();
+        match energy_cell_charged_len {
             0 =>  Err("Non ho energy cell al momento".to_string()),
-            1..3 =>  Err(format!("Per il mio comportamento non ho abbastanza energy cell. Numero attuale: {:?}", energy_cell_charged)),
+            1..3 =>  Err(format!("Per il mio comportamento non ho abbastanza energy cell. Numero attuale: {:?}", energy_cell_charged_len)),
             3..6 => //da sostituire con cell leng
                 {
                     let first_energy_cell_charged = planet_state.full_cell();
@@ -50,172 +164,117 @@ impl CiucAi for AI<SafeState> {
     }
 
 
-}
-
-
-fn update_ema(prev: f64, sample: f64, alpha: f64) -> f64 {
-    alpha * sample + (1.0 - alpha) * prev
-}
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64
-}
-
-
-
-impl<T> AI<T>
-{
-
-    fn change_state(self) -> AI<T>
+    fn print_error_message(&self, incipt:String, msg:Result<(), String>)
     {
-        let a =  AI::<T> {
-            state: PhantomData,
-            number_explorers: 0,
-            count_asteroids: 0,
-            count_sunrays: 0,
-            last_time_sunray: 0,
-            last_time_asteroid: 0,
-            estimate_asteroid_ms: 0.0,
-            estimate_sunray_ms: 0.0,
-        };
-        a
-    }
-    fn mains(mut self)
-    {
-        self = self.change_state();
-    }
-    fn update_sunray_esteem(&mut self, now_ms: i64) {
-        if self.last_time_sunray > 0 {
-            let delta = (now_ms - self.last_time_sunray) as f64;
-            self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
-            self.count_sunrays += 1;
-        }
-        self.last_time_sunray = now_ms;
-    }
-    fn update_asteroid_esteem(&mut self, now_ms: i64) {
-        if self.last_time_asteroid > 0 {
-            let delta = (now_ms - self.last_time_asteroid) as f64;
-            self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
-            self.count_asteroids += 1;
-        }
-        self.last_time_asteroid = now_ms;
-    }
-    fn on_sunray(&mut self, state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
-    {
-        let now = now_ms();
-        self.update_sunray_esteem(now);
-        let result = state.charge_cell(sunray);
-        match result {
-            None => {
-                Ok(())
+        match msg {
+            Ok(_) => {
+                println!("[CiucWorld]: {} andato a buon fine", incipt);
             },
-            Some(cell) => {
-                Err("Tutte le celle sono cariche".to_string())
-                //Ho tutte le celle cariche butto il sunray
-            }
+            Err(e) => println!("[CiucWorld]: {} ha avuto un errore: {}",incipt, e),
         }
     }
 
-    fn on_asteroid(&mut self, state: &mut PlanetState) -> Option<Rocket> //se sono stato distrutto true se vivo false
+    //------------------Funzioni per la modalità STATISTICA------------------------
+
+    fn generate_carbon_statistic_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
+        Err("Ancora non implementata".to_string())
+    }
+
+    //-----------------------FUNZIONI DA CHIAMARE-------------------------
+    fn on_sunray(&mut self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
     {
-        let now = now_ms();
-        self.update_asteroid_esteem(now);
-        if !state.has_rocket() {
-            None
+        self.update_sunray_esteem(now_ms());
+        let res = self.charge_cell_with_sunray(planet_state, sunray);
+        let mess_build = self.build_rocket(planet_state);
+        self.print_error_message("Creazione rocket dopo sunray".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
+        res
+    }
+
+    fn on_asteroid(&mut self, planet_state: &mut PlanetState) -> Option<Rocket> //se sono stato distrutto true se vivo false
+    {
+        self.update_asteroid_esteem(now_ms());  //aggiorno la stima
+        let rocket = self.deflect_asteroid(planet_state);
+        if !rocket.is_none() {                                                  //appena uso il rocket almeno che non sono morto lo ricreo subito (se non ho energy cell lo creerà il prossimo sunray)
+            let mess_build = self.build_rocket(planet_state);
+            self.print_error_message("Creazione rocket dopo asteroide".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
         }
-        else {
-            let rocket = state.take_rocket();
-            match state.full_cell() {
-                None => {
-                    println!("Non sono riuscito a creare il razzo");
-                },
-                Some((_cell, i)) => {
-                    // assert!(cell.is_charged());
-                    let _ = state.build_rocket(i);
-                }
+        rocket
+    }
+
+    fn generate_carbon(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String>
+    {
+        match &self.state {
+            AIState::SafeState => {
+                self.generate_carbon_safe_state(planet_state, generator)
+            },
+            AIState::StatisticState => {
+                self.generate_carbon_statistic_state(planet_state, generator)
             }
-            rocket
         }
     }
 }
 
-pub trait CiucAi
-{
-    //IL RAZZO C'E'
-    fn generate_carbon(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String>;
 
-}
 
-impl<T: std::marker::Send> PlanetAI for AI<T> where AI<T>: CiucAi
+impl PlanetAI for CiucAI
 {
-    fn handle_orchestrator_msg(
-        &mut self,
-        state: &mut PlanetState,
-        generator: &Generator,
-        combinator: &Combinator,
-        msg: messages::OrchestratorToPlanet
-    ) -> Option<messages::PlanetToOrchestrator> {
+
+    //Handle per la gestione degli asteroidi
+    fn handle_asteroid(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, ) -> Option<Rocket> { //OK
+        self.on_asteroid(state)
+    }
+
+
+    //Handel per la gestione di scambio dei messaggi con l'orchestrator
+    fn handle_orchestrator_msg(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, msg: messages::OrchestratorToPlanet) -> Option<messages::PlanetToOrchestrator> {
 
         match msg {
-            messages::OrchestratorToPlanet::Sunray(sun) => {
-                //Se ho una cella scarica la carico
-                let message = self.on_sunray(state, sun); //restituisce se tutte le celle sono cariche
-                // aggiorno il numero di sunray
-                //creo subito il razzo se non lo ho
-                if !state.has_rocket() {
-                    //ho sicuramente una cella carica
-                    let charged_cell_index = state.full_cell().unwrap().1; //volendo si può fare il match ma dovrebbe esserci sicuramente
-                    let _ = state.build_rocket(charged_cell_index); //qua restituisce result MA IN TEORIA NON PUOI MAI ESSERE IN ERRORE
-                }
+            messages::OrchestratorToPlanet::Sunray(sun) => { //OK
+                let message = self.on_sunray(state, sun); //restituisce errore se tutte le celle sono cariche
+                self.print_error_message("ricezione del sunray".to_string(), message); //debug per capire cosa è successo
+                Some(PlanetToOrchestrator::SunrayAck { planet_id: state.id() }) //restituisco messaggio con l'ack
+            },
+            messages::OrchestratorToPlanet::InternalStateRequest => { //OK
+                Some(PlanetToOrchestrator::InternalStateResponse {
+                    planet_id: state.id(),
+                    planet_state: state.to_dummy(),
+                })
+            },
+            messages::OrchestratorToPlanet::IncomingExplorerRequest { explorer_id: _, new_mpsc_sender: _ } => { //Per ora ho fatto solo cosi ma forse bisogna controllare che non sia già sopra??
+                self.number_explorers += 1;
+                Some(PlanetToOrchestrator::IncomingExplorerResponse {
+                    planet_id: state.id(),
+                    res: Ok(()),
+                })
+            },
+            messages::OrchestratorToPlanet::OutgoingExplorerRequest { explorer_id: _ } => { //Per ora ho fatto solo cosi ma forse bisogna controllare che ci sia già sopra??
 
-                //se sono in stato safe e ho abbastanza dati entro in stato statistico
-
-
-            }
-            messages::OrchestratorToPlanet::InternalStateRequest => {
-                //Restituisco state
-            }
-            messages::OrchestratorToPlanet::IncomingExplorerRequest { explorer_id: _, new_mpsc_sender: _ } => {
-                //metto sender se possibile
-                if true {
-                    self.number_explorers += 1;
-                }
-
-            }
-            messages::OrchestratorToPlanet::OutgoingExplorerRequest { explorer_id: _ } => {
-                //Elimino il mio sender per explorer
-                if true {
+                if self.number_explorers > 0 {
                     self.number_explorers -= 1;
                 }
+                Some(PlanetToOrchestrator::OutgoingExplorerResponse {
+                    planet_id: state.id(),
+                    res: Ok(()),
+                })
             }
 
-            _ => {}
+            _ => None
         }
-
-        None
     }
 
-    fn handle_explorer_msg(
-        &mut self,
-        state: &mut PlanetState,
-        generator: &Generator,
-        combinator: &Combinator,
-        msg: messages::ExplorerToPlanet
-    ) -> Option<messages::PlanetToExplorer> {
+
+    fn handle_explorer_msg(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, msg: messages::ExplorerToPlanet) -> Option<messages::PlanetToExplorer> {
 
         match msg {
             messages::ExplorerToPlanet::SupportedResourceRequest { explorer_id: _ } => {
-                //Restituire Carbonio
+                //restituire carbonio
             }
             messages::ExplorerToPlanet::SupportedCombinationRequest { explorer_id: _ } => {
                 //Restituire nessuna combination rule
             }
             messages::ExplorerToPlanet::GenerateResourceRequest { explorer_id: _, resource: _ } => {
                 //Controllare che la risorsa sia corretta
-                let a = self.generate_carbon(state, generator);
+                let res = self.generate_carbon(state, generator);
 
                 //SEND ACK
             }
@@ -230,19 +289,7 @@ impl<T: std::marker::Send> PlanetAI for AI<T> where AI<T>: CiucAi
         None
     }
 
-    fn handle_asteroid(
-        &mut self,
-        state: &mut PlanetState,
-        generator: &Generator,
-        combinator: &Combinator,
-    ) -> Option<Rocket> {
 
-        self.on_asteroid(state);
-
-        //se sono in stato safe e ho abbastanza dati entro in stato statistico
-
-        None
-    }
 
     fn start(&mut self, state: &PlanetState) { /* startup code */ }
     fn stop(&mut self, state: &PlanetState) { /* stop code */ }
@@ -250,29 +297,12 @@ impl<T: std::marker::Send> PlanetAI for AI<T> where AI<T>: CiucAi
 
 // This is the group's "export" function. It will be called by
 // the orchestrator to spawn your planet.
-pub fn create_planet(
-    rx_orchestrator: mpsc::Receiver<messages::OrchestratorToPlanet>,
-    tx_orchestrator: mpsc::Sender<messages::PlanetToOrchestrator>,
-    rx_explorer: mpsc::Receiver<messages::ExplorerToPlanet>,
-    tx_explorer: mpsc::Sender<messages::PlanetToExplorer>,
-    id: u32
-) -> Planet {
-    // crea l'AI concreto
-    let ai_concrete = AI::<SafeState> {
-        state: PhantomData,
-        number_explorers: 0,
-        count_asteroids: 0,
-        count_sunrays: 0,
-        last_time_sunray: 0,
-        last_time_asteroid: 0,
-        estimate_asteroid_ms: 0.0,
-        estimate_sunray_ms: 0.0,
-    };
+pub fn create_planet(rx_orchestrator: mpsc::Receiver<messages::OrchestratorToPlanet>, tx_orchestrator: mpsc::Sender<messages::PlanetToOrchestrator>, rx_explorer: mpsc::Receiver<messages::ExplorerToPlanet>, id: u32) -> Planet {
 
-    // mettilo nello heap come trait object: Box<dyn PlanetAI>
+    let ai_concrete = CiucAI::new();
     let ai_box: Box<dyn PlanetAI> = Box::new(ai_concrete);
 
-    let gen_rules = vec![BasicResourceType::Carbon]; //PENSIAMOCI
+    let gen_rules = vec![BasicResourceType::Carbon];
     let comb_rules = vec![];
 
     // PASSA i singoli canali (non tuple) e l'AI boxed
@@ -286,6 +316,5 @@ pub fn create_planet(
         rx_explorer
     ).expect("Planet creation failed")
 }
-
 
 
