@@ -234,30 +234,12 @@ impl PlanetAI for CiucAI
                 self.print_error_message("ricezione del sunray".to_string(), message); //debug per capire cosa è successo
                 Some(PlanetToOrchestrator::SunrayAck { planet_id: state.id() }) //restituisco messaggio con l'ack
             },
-            messages::OrchestratorToPlanet::InternalStateRequest => { //OK
+            messages::OrchestratorToPlanet::InternalStateRequest => { //FORSE VA RIMOSSA (MI SA CHE NON SI USA PIU)
                 Some(PlanetToOrchestrator::InternalStateResponse {
                     planet_id: state.id(),
                     planet_state: state.to_dummy(),
                 })
             },
-            messages::OrchestratorToPlanet::IncomingExplorerRequest { explorer_id: _, new_mpsc_sender: _ } => { //Per ora ho fatto solo cosi ma forse bisogna controllare che non sia già sopra??
-                self.number_explorers += 1;
-                Some(PlanetToOrchestrator::IncomingExplorerResponse {
-                    planet_id: state.id(),
-                    res: Ok(()),
-                })
-            },
-            messages::OrchestratorToPlanet::OutgoingExplorerRequest { explorer_id: _ } => { //Per ora ho fatto solo cosi ma forse bisogna controllare che ci sia già sopra??
-
-                if self.number_explorers > 0 {
-                    self.number_explorers -= 1;
-                }
-                Some(PlanetToOrchestrator::OutgoingExplorerResponse {
-                    planet_id: state.id(),
-                    res: Ok(()),
-                })
-            }
-
             _ => None
         }
     }
@@ -282,7 +264,7 @@ impl PlanetAI for CiucAI
                 //Restituire il nulla
             }
             messages::ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: _ } => {
-                //Restituire numero di energy cell available
+                return Some(PlanetToExplorer::AvailableEnergyCellResponse { available_cells: 5 })
             }
         }
 
