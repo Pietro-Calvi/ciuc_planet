@@ -2,13 +2,14 @@ use std::marker::PhantomData;
 use std::sync::mpsc;
 use common_game::components::asteroid::Asteroid;
 use common_game::components::planet::{Planet, PlanetAI, PlanetState, PlanetType};
-use common_game::components::resource::{Combinator, Generator, BasicResourceType};
+use common_game::components::planet::PlanetType::C;
+use common_game::components::resource::{Combinator, Generator, BasicResourceType, BasicResource};
 use common_game::components::resource::BasicResource::Carbon;
 use common_game::components::rocket::Rocket;
 use common_game::components::sunray::Sunray;
 use common_game::protocols::messages;
 use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator};
-
+use common_game::protocols::messages::PlanetToExplorer::SupportedCombinationResponse;
 
 //The state define the AI logic
 enum AIState
@@ -83,19 +84,19 @@ impl CiucAI
         self.last_time_asteroid = now_ms;
     }
 
-    //Funzione per cambiare stato per ora cambia solo da safestate a stastisticstate
-    fn change_state(&mut self) -> Result<(),String>
+    //funzione per cambiare lo stato
+    fn change_state(&mut self)
     {
-        let a = &self.state;
-        match a {
+        //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
+        let now_state = &self.state;
+        match now_state {
             AIState::SafeState => {
-                self.state = AIState::StatisticState;
-                Ok(())
+                if self.count_asteroids >= 3 && self.count_sunrays >= 3
+                {
+                    self.state = AIState::StatisticState;
+                }
             },
-            AIState::StatisticState => {
-                Err("Per ora non è previsto nessun cambiamento di stato".to_string())
-            },
-            _ => Err("Stato non riconosciuto".to_string())
+            _ => {}
         }
     }
 
@@ -187,6 +188,7 @@ impl CiucAI
         let res = self.charge_cell_with_sunray(planet_state, sunray);
         let mess_build = self.build_rocket(planet_state);
         self.print_error_message("Creazione rocket dopo sunray".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
+        self.change_state();
         res
     }
 
@@ -197,6 +199,7 @@ impl CiucAI
         if !rocket.is_none() {                                                  //appena uso il rocket almeno che non sono morto lo ricreo subito (se non ho energy cell lo creerà il prossimo sunray)
             let mess_build = self.build_rocket(planet_state);
             self.print_error_message("Creazione rocket dopo asteroide".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
+            self.change_state(); //cambio lo stato se ho una stima utilizzabile e il pianeta non è morto
         }
         rocket
     }
@@ -249,26 +252,50 @@ impl PlanetAI for CiucAI
 
         match msg {
             messages::ExplorerToPlanet::SupportedResourceRequest { explorer_id: _ } => {
-                //restituire carbonio
-            }
-            messages::ExplorerToPlanet::SupportedCombinationRequest { explorer_id: _ } => {
-                //Restituire nessuna combination rule
-            }
-            messages::ExplorerToPlanet::GenerateResourceRequest { explorer_id: _, resource: _ } => {
-                //Controllare che la risorsa sia corretta
-                let res = self.generate_carbon(state, generator);
+                Some(PlanetToExplorer::SupportedResourceResponse {
+                    resource_list: generator.all_available_recipes()
+                })
+            },
 
-                //SEND ACK
-            }
+            messages::ExplorerToPlanet::SupportedCombinationRequest { explorer_id: _ } => {
+                Some(PlanetToExplorer::SupportedCombinationResponse {
+                    combination_list: combinator.all_available_recipes()
+                })
+            },
+
+            messages::ExplorerToPlanet::GenerateResourceRequest { explorer_id: _, resource: tipo } => {
+                match tipo {
+                    common_game::components::resource::BasicResourceType::Carbon => {
+                        let res = self.generate_carbon(state, generator);  //Cambierei in genera un tipo generale di risorsa tanto restituisce errore se la risorsa non è nella lista delle risorse generabili (implementato in planet.rs)
+                        //SEND ACK
+                        match res {
+                            Ok(carbon) => Some(PlanetToExplorer::GenerateResourceResponse {
+                                resource: Some(BasicResource::Carbon(carbon))
+                            }),
+                            Err(err) =>
+                                {
+                                    println!("[Ciuc_planet]::GenerateResourceResponse Failed: {}", err);
+                                    None
+                                },
+                        }
+                    },
+                    _ => {
+                        None
+                    }
+                }
+            },
+
             messages::ExplorerToPlanet::CombineResourceRequest { explorer_id: _, msg: _ } => {
-                //Restituire il nulla
-            }
+                None //da riguardare penso che bisogna restituire un errore
+            },
+
             messages::ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: _ } => {
-                return Some(PlanetToExplorer::AvailableEnergyCellResponse { available_cells: 5 })
-            }
+                Some(PlanetToExplorer::AvailableEnergyCellResponse { available_cells: 5 })
+            },
+
+            _ => None
         }
 
-        None
     }
 
 
