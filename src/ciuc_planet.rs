@@ -11,12 +11,19 @@ use common_game::protocols::messages;
 use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator};
 use common_game::protocols::messages::PlanetToExplorer::SupportedCombinationResponse;
 
+//costanti per la generazione di risorse
+const SAFE_CELLS_SAFE_MODE:u32 = 2;
+const SAFE_CELLS_STATISTIC_MODE_FIRST:u32 = 1;
+const SAFE_CELLS_STATISTIC_MODE_SECOND:u32 = SAFE_CELLS_SAFE_MODE;
+
+
 //The state define the AI logic
 enum AIState
 {
     SafeState, //The initial state, the world wait some data for change in StatisticState
     StatisticState //The final state, the world use more cells when a asteroid is distant (esteem time)
 }
+
 
 
 // Group-defined AI struct
@@ -91,7 +98,7 @@ impl CiucAI
         let now_state = &self.state;
         match now_state {
             AIState::SafeState => {
-                if self.count_asteroids >= 3 && self.count_sunrays >= 300 //valore temporaneo per fare i test sullo stato safe
+                if self.count_asteroids >= 3 && self.count_sunrays >= 3 //valore temporaneo per fare i test sullo stato safe
                 {
                     self.state = AIState::StatisticState;
                 }
@@ -143,12 +150,12 @@ impl CiucAI
 
 
     //------------------Funzioni per la modalità SAFE------------------------
-    fn generate_carbon_safe_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
+    fn generate_carbon_if_have_n_safe_cells(&self, planet_state:&mut PlanetState, generator: &Generator, safe_cells:u32) -> Result<common_game::components::resource::Carbon, String> {
         let energy_cell_charged_len = planet_state.cells_iter().enumerate().map(|(i, cell)| { if cell.is_charged() {1} else {0} }).sum::<u32>();
         match energy_cell_charged_len {
             0 =>  Err("Non ho energy cell al momento".to_string()),
-            1..3 =>  Err(format!("Per il mio comportamento non ho abbastanza energy cell. Numero attuale: {:?}", energy_cell_charged_len)),
-            3..6 => //da sostituire con cell leng
+            6.. => Err("non dovrei essere qui".to_string()),
+            charged_cells if charged_cells > safe_cells =>
                 {
                     let first_energy_cell_charged = planet_state.full_cell();
                     match first_energy_cell_charged {
@@ -159,8 +166,29 @@ impl CiucAI
                             Err("non dovrei essere qui".to_string())
                         }
                     }
-                }
+                },
             _ => Err("non dovrei essere qui".to_string())
+        }
+    }
+
+
+    //------------------Funzioni per la modalità SAFE------------------------
+    fn generate_carbon_safe_state(&self, planet_state:&mut PlanetState, generator: &Generator)-> Result<common_game::components::resource::Carbon, String> {
+        self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_SAFE_MODE)
+    }
+
+
+    //------------------Funzioni per la modalità STATISTICA------------------------
+
+    fn generate_carbon_statistic_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
+        let time_passed_last_asteroid = now_ms() - self.last_time_asteroid;
+        if time_passed_last_asteroid < ((self.estimate_asteroid_ms / 2.0) as i64) //è passato meno della metà della stima
+        {
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_STATISTIC_MODE_FIRST) //genero velocemente tenendomi solo una cella safe 
+        }
+        else
+        {
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_STATISTIC_MODE_SECOND) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
         }
     }
 
@@ -175,11 +203,6 @@ impl CiucAI
         }
     }
 
-    //------------------Funzioni per la modalità STATISTICA------------------------
-
-    fn generate_carbon_statistic_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
-        Err("Ancora non implementata".to_string())
-    }
 
     //-----------------------FUNZIONI DA CHIAMARE-------------------------
     fn on_sunray(&mut self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
