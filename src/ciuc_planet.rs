@@ -12,9 +12,14 @@ use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, P
 use common_game::protocols::messages::PlanetToExplorer::SupportedCombinationResponse;
 
 //costanti per la generazione di risorse
-const SAFE_CELLS_SAFE_MODE:u32 = 2;
-const SAFE_CELLS_STATISTIC_MODE_FIRST:u32 = 1;
-const SAFE_CELLS_STATISTIC_MODE_SECOND:u32 = SAFE_CELLS_SAFE_MODE;
+mod safe {
+    pub const CELLS: u32 = 2;
+}
+
+mod statistic {
+    pub const FIRST: u32 = 1;
+    pub const SECOND: u32 = 2;
+}
 
 
 //The state define the AI logic
@@ -95,15 +100,9 @@ impl CiucAI
     fn change_state(&mut self)
     {
         //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
-        let now_state = &self.state;
-        match now_state {
-            AIState::SafeState => {
-                if self.count_asteroids >= 3 && self.count_sunrays >= 3 //valore temporaneo per fare i test sullo stato safe
-                {
-                    self.state = AIState::StatisticState;
-                }
-            },
-            _ => {}
+        if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3
+        {
+            self.state = AIState::StatisticState;
         }
     }
 
@@ -122,20 +121,13 @@ impl CiucAI
     }
 
     //Funzione per distruggere un asteroide (se non si ha il razzo si viene distrutti)
-    fn deflect_asteroid(&self, planet_state:&mut PlanetState) -> Option<Rocket>
-    {
-        if !planet_state.has_rocket() {
-            None
-        }
-        else {
-            let rocket = planet_state.take_rocket();
-            rocket
-        }
+    fn deflect_asteroid(&self, planet_state: &mut PlanetState) -> Option<Rocket> {
+        planet_state.take_rocket()
     }
 
 
     //Funzione per caricare una cella con un sunray
-    fn charge_cell_with_sunray(&mut self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
+    fn charge_cell_with_sunray(&self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
     {
         let result = planet_state.charge_cell(sunray);
         match result {
@@ -151,7 +143,7 @@ impl CiucAI
 
     //------------------Funzioni per la modalità SAFE------------------------
     fn generate_carbon_if_have_n_safe_cells(&self, planet_state:&mut PlanetState, generator: &Generator, safe_cells:u32) -> Result<common_game::components::resource::Carbon, String> {
-        let energy_cell_charged_len = planet_state.cells_iter().enumerate().map(|(i, cell)| { if cell.is_charged() {1} else {0} }).sum::<u32>();
+        let energy_cell_charged_len = planet_state.cells_iter().filter(|c| c.is_charged()).count() as u32;
         match energy_cell_charged_len {
             0 =>  Err("Non ho energy cell al momento".to_string()),
             6.. => Err("non dovrei essere qui".to_string()),
@@ -174,21 +166,34 @@ impl CiucAI
 
     //------------------Funzioni per la modalità SAFE------------------------
     fn generate_carbon_safe_state(&self, planet_state:&mut PlanetState, generator: &Generator)-> Result<common_game::components::resource::Carbon, String> {
-        self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_SAFE_MODE)
+        self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe::CELLS)
     }
 
 
     //------------------Funzioni per la modalità STATISTICA------------------------
 
     fn generate_carbon_statistic_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
-        let time_passed_last_asteroid = now_ms() - self.last_time_asteroid;
-        if time_passed_last_asteroid < ((self.estimate_asteroid_ms / 2.0) as i64) //è passato meno della metà della stima
+        let now = now_ms();
+        let time_passed_last_sunray = now - self.last_time_sunray;
+        let time_passed_last_asteroid = now - self.last_time_asteroid;
+
+        let mut remove_safe_cell_cause_sunray = 0;
+        if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms) //se ho un sunray che sta arrivando posso generare ancora più velocemente (la cella safe mi torna subito) (come invertire il polling senza farlo)
         {
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_STATISTIC_MODE_FIRST) //genero velocemente tenendomi solo una cella safe 
+            remove_safe_cell_cause_sunray = 1;
+        }
+
+        if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0) //è passato meno della metà della stima
+        {
+            let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; //se c'è un sunray uso una cella in meno tanto mi torna subito
+
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero velocemente tenendomi solo una cella safe
         }
         else
         {
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, SAFE_CELLS_STATISTIC_MODE_SECOND) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
+            let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; //se c'è un sunray genero con una cella in meno tanto mi torna subito
+
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
         }
     }
 
@@ -219,7 +224,7 @@ impl CiucAI
     {
         self.update_asteroid_esteem(now_ms());  //aggiorno la stima
         let rocket = self.deflect_asteroid(planet_state);
-        if !rocket.is_none() {                                                  //appena uso il rocket almeno che non sono morto lo ricreo subito (se non ho energy cell lo creerà il prossimo sunray)
+        if let Some(_) = rocket {                                               //appena uso il rocket almeno che non sono morto lo ricreo subito (se non ho energy cell lo creerà il prossimo sunray)
             let mess_build = self.build_rocket(planet_state);
             self.print_error_message("Creazione rocket dopo asteroide".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
             self.change_state(); //cambio lo stato se ho una stima utilizzabile e il pianeta non è morto
@@ -313,7 +318,7 @@ impl PlanetAI for CiucAI
             },
 
             messages::ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: _ } => {
-                Some(PlanetToExplorer::AvailableEnergyCellResponse { available_cells: 5 }) //non dovrebbe mandare il numero di celle che l'explorer può usare
+                Some(PlanetToExplorer::AvailableEnergyCellResponse { available_cells: state.cells_iter().len() as u32 }) //non dovrebbe mandare il numero di celle che l'explorer può usare??? o quante ne ho totali??
             },
 
             _ => None
