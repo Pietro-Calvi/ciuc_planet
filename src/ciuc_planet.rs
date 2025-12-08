@@ -12,7 +12,7 @@ use common_game::protocols::messages::{PlanetToExplorer, PlanetToOrchestrator};
 
 //costanti per la generazione di risorse
 mod safe {
-    pub const CELLS: u32 = 2;
+    pub const CELLS: u32 = 3;
 }
 
 mod statistic {
@@ -79,6 +79,7 @@ impl CiucAI
 
     //funzioni per l'aggiornamento della stima sunray e asteroidi:
     fn update_sunray_esteem(&mut self, now_ms: i64, id:u32) {
+        let prev_esteem_for_log = self.estimate_sunray_ms;
         if self.last_time_sunray > 0 {
             if self.count_sunrays == 0
             {
@@ -92,9 +93,10 @@ impl CiucAI
             }
         }
         self.last_time_sunray = now_ms;
-        self.log(format!("Updated sunray esteem from {} to {}", self.last_time_sunray, self.estimate_sunray_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
+        self.log(format!("Updated sunray esteem from {} to {}", prev_esteem_for_log, self.estimate_sunray_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
     }
     fn update_asteroid_esteem(&mut self, now_ms: i64, id:u32) {
+        let prev_asteroid_esteem_for_log = self.estimate_asteroid_ms;
         if self.last_time_asteroid > 0 {
             if self.count_asteroids == 0
             {
@@ -108,18 +110,21 @@ impl CiucAI
             }
         }
         self.last_time_asteroid = now_ms;
-        self.log(format!("Updated asteroid esteem from {} to {}", self.last_time_asteroid, self.estimate_asteroid_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
+        self.log(format!("Updated asteroid esteem from {} to {}", prev_asteroid_esteem_for_log, self.estimate_asteroid_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
     }
 
     //funzione per cambiare lo stato
     fn change_state(&mut self, id:u32)
     {
+        if matches!(self.state, AIState::StatisticState) && self.estimate_asteroid_ms < self.estimate_sunray_ms{  //torno in safezone e provo a resistere
+            self.state = AIState::SafeState;
+            self.log("Changed AI's state into safe".to_string(), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
+        }
         //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
-        if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3
+        else if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3 && self.estimate_asteroid_ms >= self.estimate_sunray_ms
         {
-            println!("st: {} - {}", self.estimate_sunray_ms, self.estimate_asteroid_ms);
             self.state = AIState::StatisticState;
-            self.log("Changed AI's state into statistic".to_string(), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
+            self.log("Changed AI's state into statistic".to_string(), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
         }
     }
 
@@ -196,27 +201,22 @@ impl CiucAI
 
         let mut remove_safe_cell_cause_sunray = 0;
 
-        println!("{} - {}", time_passed_last_sunray, 0.75 * self.estimate_sunray_ms);
 
         if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms) //se ho un sunray che sta arrivando posso generare ancora più velocemente (la cella safe mi torna subito) (come invertire il polling senza farlo)
         {
-            println!("Posso una in meno");
+            self.log("I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
             remove_safe_cell_cause_sunray = 1;
         }
 
         if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0) //è passato meno della metà della stima
         {
-            println!("PRIMO CASO"); //DEBUG
             let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; //se c'è un sunray uso una cella in meno tanto mi torna subito
-
+            self.log( format!("the asteroid is far away so I reserve {} cells for my survival.", safe_cell), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero velocemente tenendomi solo una cella safe
         }
         else
         {
-            println!("SECONDO CASO");//DEBUG
-
             let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; //se c'è un sunray genero con una cella in meno tanto mi torna subito
-
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
         }
     }
@@ -305,7 +305,7 @@ impl PlanetAI for CiucAI
                         self.log(e, state.id(), ActorType::User, EventType::InternalPlanetAction, "orchestrator".to_string(), Channel::Error);
                     }
                 }
-                self.log("Sending SunrayAck to the orchestrator".to_string(), state.id(), ActorType::Orchestrator, EventType::MessagePlanetToOrchestrator, "orchestrator".to_string(), Channel::Info);
+                self.log("Sending SunrayAck to the orchestrator".to_string(), state.id(), ActorType::Orchestrator, EventType::MessagePlanetToOrchestrator, "orchestrator".to_string(), Channel::Trace);
                 Some(PlanetToOrchestrator::SunrayAck { planet_id: state.id() }) //restituisco messaggio con l'ack
 
             },
@@ -390,6 +390,7 @@ impl PlanetAI for CiucAI
 
     //Handle per la gestione degli asteroidi
     fn handle_asteroid(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, ) -> Option<Rocket> { //OK
+        self.log("Asteroid received".to_string(), state.id(), ActorType::User, EventType::MessageOrchestratorToPlanet, "user".to_string(), Channel::Info);
         self.on_asteroid(state)
     }
 
