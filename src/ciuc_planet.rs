@@ -80,18 +80,32 @@ impl CiucAI
     //funzioni per l'aggiornamento della stima sunray e asteroidi:
     fn update_sunray_esteem(&mut self, now_ms: i64, id:u32) {
         if self.last_time_sunray > 0 {
-            let delta = (now_ms - self.last_time_sunray) as f64;
-            self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
-            self.count_sunrays += 1;
+            if self.count_sunrays == 0
+            {
+                self.estimate_sunray_ms = (now_ms - self.last_time_sunray) as f64;
+                self.count_sunrays += 1;
+            }
+            else {
+                let delta = (now_ms - self.last_time_sunray) as f64;
+                self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
+                self.count_sunrays += 1;
+            }
         }
         self.last_time_sunray = now_ms;
         self.log(format!("Updated sunray esteem from {} to {}", self.last_time_sunray, self.estimate_sunray_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
     }
     fn update_asteroid_esteem(&mut self, now_ms: i64, id:u32) {
         if self.last_time_asteroid > 0 {
-            let delta = (now_ms - self.last_time_asteroid) as f64;
-            self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
-            self.count_asteroids += 1;
+            if self.count_asteroids == 0
+            {
+                self.estimate_asteroid_ms = (now_ms - self.last_time_asteroid) as f64;
+                self.count_asteroids += 1;
+            }
+            else {
+                let delta = (now_ms - self.last_time_asteroid) as f64;
+                self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
+                self.count_asteroids += 1;
+            }
         }
         self.last_time_asteroid = now_ms;
         self.log(format!("Updated asteroid esteem from {} to {}", self.last_time_asteroid, self.estimate_asteroid_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
@@ -103,6 +117,7 @@ impl CiucAI
         //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
         if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3
         {
+            println!("st: {} - {}", self.estimate_sunray_ms, self.estimate_asteroid_ms);
             self.state = AIState::StatisticState;
             self.log("Changed AI's state into statistic".to_string(), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
         }
@@ -180,19 +195,26 @@ impl CiucAI
         let time_passed_last_asteroid = now - self.last_time_asteroid;
 
         let mut remove_safe_cell_cause_sunray = 0;
+
+        println!("{} - {}", time_passed_last_sunray, 0.75 * self.estimate_sunray_ms);
+
         if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms) //se ho un sunray che sta arrivando posso generare ancora più velocemente (la cella safe mi torna subito) (come invertire il polling senza farlo)
         {
+            println!("Posso una in meno");
             remove_safe_cell_cause_sunray = 1;
         }
 
         if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0) //è passato meno della metà della stima
         {
+            println!("PRIMO CASO"); //DEBUG
             let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; //se c'è un sunray uso una cella in meno tanto mi torna subito
 
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero velocemente tenendomi solo una cella safe
         }
         else
         {
+            println!("SECONDO CASO");//DEBUG
+
             let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; //se c'è un sunray genero con una cella in meno tanto mi torna subito
 
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
@@ -801,6 +823,110 @@ mod tests {
         tx_orch.send(OrchestratorToPlanet::StopPlanetAI).unwrap();
         drop(tx_orch);
         let _ = handle.join();
+    }
+    #[test]
+    fn test_generate_carbon_statical_state() {
+        let (mut planet, tx_orch, rx_orch, tx_expl) = create_mock_planet();
+
+        // Create an explorer
+        let explorer_id = 2;
+        let (tx_expl_local, rx_expl_local) = crossbeam_channel::unbounded();
+
+        let handle = thread::spawn(move || {
+            let _ = planet.run();
+        });
+
+        // Start the AI
+        tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
+        tx_orch.send(OrchestratorToPlanet::IncomingExplorerRequest {
+            explorer_id,
+            new_mpsc_sender: tx_expl_local,
+        }).unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        // Go in statistic mode
+
+            // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+
+        // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+        // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+
+        //CAMBIO STATO
+
+        // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+
+
+        // send sunray to create a rocket
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
+
+        // send sunray with a smallar time out
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send sunray with a smallar time out
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+
+        thread::sleep(Duration::from_millis(200)); //funziona perchè il sunray deve arrivare secondo la stima
+        // send a GenerateResourceRequest
+        tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
+
+        match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToExplorer::GenerateResourceResponse { resource }) => {
+                assert!(resource.is_some(), "The resource has not been generated.");
+                match resource.unwrap() {
+                    BasicResource::Carbon(_) => assert!(true),
+                    _ => panic!("An incorrect resource has been generated."),
+                }
+            },
+            _ => panic!("No response was received for GenerateResourceRequest within the timeout period."),
+        }
+
+
+
     }
 
     //################################################
