@@ -1,15 +1,11 @@
 #![allow(dead_code)]
-use std::sync::mpsc;
-use common_game::components::asteroid::Asteroid;
+use crossbeam_channel::{Sender, Receiver};
 use common_game::components::planet::{Planet, PlanetAI, PlanetState, PlanetType};
-use common_game::components::planet::PlanetType::C;
 use common_game::components::resource::{Combinator, Generator, BasicResourceType, BasicResource};
-use common_game::components::resource::BasicResource::Carbon;
 use common_game::components::rocket::Rocket;
 use common_game::components::sunray::Sunray;
 use common_game::protocols::messages;
-use common_game::protocols::messages::{ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator};
-use common_game::protocols::messages::PlanetToExplorer::SupportedCombinationResponse;
+use common_game::protocols::messages::{PlanetToExplorer, PlanetToOrchestrator};
 
 //costanti per la generazione di risorse
 mod safe {
@@ -134,7 +130,7 @@ impl CiucAI
             None => {
                 Ok(())
             },
-            Some(cell) => {
+            Some(_) => {
                 Err("Tutte le celle sono cariche".to_string())      //Ho tutte le celle cariche butto il sunray  (SE SI VA IN QUESTO CASO TANTE VOLTE SI PUò ANCHE IMPLEMENTARE UN AI CHE ALLORA GENERA' DI PIù!! (iIDEA PER IL FUTURO))
             }
         }
@@ -216,7 +212,7 @@ impl CiucAI
         let res = self.charge_cell_with_sunray(planet_state, sunray);
         let mess_build = self.build_rocket(planet_state);
         self.print_error_message("Creazione rocket dopo sunray".to_string(), mess_build); //metodo per debuggare la risposta del build rocket
-       self.change_state();
+        self.change_state();
         res
     }
 
@@ -334,8 +330,7 @@ impl PlanetAI for CiucAI
 
 // This is the group's "export" function. It will be called by
 // the orchestrator to spawn your planet.
-pub fn create_planet(rx_orchestrator: mpsc::Receiver<messages::OrchestratorToPlanet>, tx_orchestrator: mpsc::Sender<messages::PlanetToOrchestrator>, rx_explorer: mpsc::Receiver<messages::ExplorerToPlanet>, id: u32) -> Planet {
-
+pub fn create_planet(rx_orchestrator: Receiver<messages::OrchestratorToPlanet>, tx_orchestrator: Sender<messages::PlanetToOrchestrator>, rx_explorer: Receiver<messages::ExplorerToPlanet>, id:u32) -> Planet {
     let ai_concrete = CiucAI::new();
     let ai_box: Box<dyn PlanetAI> = Box::new(ai_concrete);
 
@@ -362,14 +357,11 @@ pub fn create_planet(rx_orchestrator: mpsc::Receiver<messages::OrchestratorToPla
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
     use common_game::components::asteroid::Asteroid;
-    use common_game::components::energy_cell::EnergyCell;
-    use common_game::components::resource::{BasicResourceType, Combinator, Generator};
-    use common_game::components::rocket::Rocket;
+    use common_game::components::resource::{BasicResourceType};
     use common_game::components::sunray::Sunray;
     use common_game::protocols::messages::{
         ExplorerToPlanet, OrchestratorToPlanet, PlanetToExplorer, PlanetToOrchestrator,
@@ -378,18 +370,21 @@ mod tests {
 
 
     // function to create a temporary planet for testing purposes
-    fn create_mock_planet()->(Planet, mpsc::Sender<OrchestratorToPlanet>, mpsc::Receiver<PlanetToOrchestrator>, mpsc::Sender<ExplorerToPlanet>,){
+    fn create_mock_planet()->(Planet, Sender<OrchestratorToPlanet>, Receiver<PlanetToOrchestrator>, Sender<ExplorerToPlanet>,){
         // channel creation
 
-        //  Orchestrator -> Planet
-        let (tx_orch_in, rx_orch_in) = mpsc::channel::<OrchestratorToPlanet>();
-        //  Planet -> Orchestrator +
-        let (tx_orch_out, rx_orch_out) = mpsc::channel::<PlanetToOrchestrator>();
+        // Orchestrator -> Planet
+        let (tx_orch_in, rx_orch_in) = crossbeam_channel::unbounded::<OrchestratorToPlanet>();
+
+        // Planet -> Orchestrator
+        let (tx_orch_out, rx_orch_out) = crossbeam_channel::unbounded::<PlanetToOrchestrator>();
 
         // Explorer -> Planet
-        let (tx_expl_in, rx_expl_in) = mpsc::channel::<ExplorerToPlanet>();
+        let (tx_expl_in, rx_expl_in) = crossbeam_channel::unbounded::<ExplorerToPlanet>();
+
         // Planet -> Explorer
-        let (_tx_expl_out, _rx_expl_out) = mpsc::channel::<PlanetToExplorer>();
+        let (_tx_expl_out, _rx_expl_out) = crossbeam_channel::unbounded::<PlanetToExplorer>();
+
         let planet = create_planet(rx_orch_in, tx_orch_out, rx_expl_in, 1);
 
         (
@@ -400,133 +395,133 @@ mod tests {
         )
     }
 
-//################################################
-//#############OrchestratorToPlanet###############
-// ###############################################
-    #[test] //check if a planet without a rocket is destroyed
+    //################################################
+    //#############OrchestratorToPlanet###############
+    // ###############################################
+    #[test]
     fn test_asteroid_with_no_rocket() {
         let (mut planet, tx_orch, rx_orch, _tx_expl) = create_mock_planet();
 
-        //spawn the planet
+        // spawn planet
         let handle = thread::spawn(move || {
             let _ = planet.run();
         });
+
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
         thread::sleep(Duration::from_millis(50));
 
-        // Send an asteroid
+        // Send asteroid
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        // Check if the AsteroidAck is correct (true)
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
-            Ok(PlanetToOrchestrator::AsteroidAck { destroyed, .. }) => {
-                assert!(destroyed, "The planet was destroyed");
-            },
+        // Expect ACK
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+            Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
+                assert!(rocket.is_none(), "Planet should have NO rocket.");
+            }
             _ => panic!("AsteroidAck was not received within the timeout period."),
         }
 
-       // //Destroy the planet
-       //  tx_orch.send(OrchestratorToPlanet::StopPlanetAI).unwrap();
-       //  drop(tx_orch);
-       //  let _ = handle.join();
+        // NO shutdown necessary for this test
     }
 
-    #[test] //check if a planet can build a rocket and defend itself with it
+
+
+    #[test]
     fn test_asteroid_with_rocket() {
         let (mut planet, tx_orch, rx_orch, _tx_expl) = create_mock_planet();
+
         let handle = thread::spawn(move || {
             let _ = planet.run();
         });
+
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
         thread::sleep(Duration::from_millis(50));
 
-       //  Send a sunray to craft a rocket
+        // Send sunray → expect SunrayAck
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        // Check if the SunrayAck was send
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
-                assert_eq!(planet_id, 1, "The planet ID in the ACK doesn't match.");
-            },
+                assert_eq!(planet_id, 1, "Planet ID mismatch.");
+            }
             _ => panic!("SunrayAck was not received within the timeout period."),
         }
 
-        // Send an asteroid
+        // Send asteroid → expect AsteroidAck (with rocket)
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        // Check if the AsteroidAck is correct (false)
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
-            Ok(PlanetToOrchestrator::AsteroidAck { destroyed, .. }) => {
-                assert!(!destroyed, "The planet survived");
-            },
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+            Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
+                assert!(rocket.is_some(), "Planet should have a rocket and survive.");
+            }
             _ => panic!("AsteroidAck was not received within the timeout period."),
         }
 
-        //Destroy the planet
+        // Cleanup
         tx_orch.send(OrchestratorToPlanet::StopPlanetAI).unwrap();
         drop(tx_orch);
         let _ = handle.join();
     }
 
-    #[test] //check if a planet immediately recreates a rocket after using it
+
+
+    #[test]
     fn test_asteroid_is_the_rocket_rebuild() {
         let (mut planet, tx_orch, rx_orch, _tx_expl) = create_mock_planet();
+
         let handle = thread::spawn(move || {
             let _ = planet.run();
         });
+
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
         thread::sleep(Duration::from_millis(50));
 
-        //  Send a sunray to craft a rocket
+        // 1° sunray → expect ACK (rocket craft)
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        // Check if the SunrayAck was send
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
-                assert_eq!(planet_id, 1, "The planet ID in the ACK doesn't match.");
-            },
-            _ => panic!("SunrayAck was not received within the timeout period."),
+                assert_eq!(planet_id, 1);
+            }
+            _ => panic!("SunrayAck #1 missing."),
         }
 
-        //  Send the second sunray to charge an energy cell
+        // 2° sunray → expect ACK (energy cell charge)
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        // Check if the SunrayAck was send
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
-                assert_eq!(planet_id, 1, "The planet ID in the ACK doesn't match.");
-            },
-            _ => panic!("SunrayAck was not received within the timeout period."),
+                assert_eq!(planet_id, 1);
+            }
+            _ => panic!("SunrayAck #2 missing."),
         }
 
-
-        // Send an asteroid
+        // 1° asteroid → must use rocket, survive
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        // Check if the AsteroidAck is correct (false)
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
-            Ok(PlanetToOrchestrator::AsteroidAck { destroyed, .. }) => {
-                assert!(!destroyed, "The planet survived");
-            },
-            _ => panic!("The AsteroidAck wasn't able to be received"),
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+            Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
+                assert!(rocket.is_some(), "First asteroid should be defended.");
+            }
+            _ => panic!("AsteroidAck #1 missing."),
         }
 
-        // Send the second asteroid
+        // 2° asteroid → NEW rocket must already be rebuilt
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        // Check if the AsteroidAck is correct (false)
-        match rx_orch.recv_timeout(Duration::from_millis(200)) {
-            Ok(PlanetToOrchestrator::AsteroidAck { destroyed, .. }) => {
-                assert!(!destroyed, "The planet survived");
-            },
-            _ => panic!("The AsteroidAck wasn't able to be received"),
+        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+            Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
+                assert!(rocket.is_some(), "Rocket should be rebuilt for second asteroid.");
+            }
+            _ => panic!("AsteroidAck #2 missing."),
         }
 
-        //Destroy the planet
+        // Cleanup
         tx_orch.send(OrchestratorToPlanet::StopPlanetAI).unwrap();
         drop(tx_orch);
         let _ = handle.join();
     }
+
 
     //################################################
     //#############ExplorerToPlanet###################
@@ -539,7 +534,7 @@ mod tests {
 
         // Create an explorer
         let explorer_id = 2;
-        let (tx_expl_local, rx_expl_local) = mpsc::channel();
+        let (tx_expl_local, rx_expl_local) = crossbeam_channel::unbounded();
 
         let handle = thread::spawn(move || {
             let _ = planet.run();
@@ -578,7 +573,7 @@ mod tests {
 
         // Create an explorer
         let explorer_id = 2;
-        let (tx_expl_local, rx_expl_local) = mpsc::channel();
+        let (tx_expl_local, rx_expl_local) = crossbeam_channel::unbounded();
 
         let handle = thread::spawn(move || {
             let _ = planet.run();
@@ -619,7 +614,7 @@ mod tests {
 
         // Create an explorer
         let explorer_id = 2;
-        let (tx_expl_local, rx_expl_local) = mpsc::channel();
+        let (tx_expl_local, rx_expl_local) = crossbeam_channel::unbounded();
 
         let handle = thread::spawn(move || {
             let _ = planet.run();
@@ -659,7 +654,7 @@ mod tests {
 
         // Create an explorer
         let explorer_id = 2;
-        let (tx_expl_local, rx_expl_local) = mpsc::channel();
+        let (tx_expl_local, rx_expl_local) = crossbeam_channel::unbounded();
 
         let handle = thread::spawn(move || {
             let _ = planet.run();
@@ -682,7 +677,7 @@ mod tests {
 
         // check
         match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-            Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
 
                 println!("no carbon received, as expected");
             },
@@ -698,7 +693,7 @@ mod tests {
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
         // check
         match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-            Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
 
                 println!("No carbon received, as expected");
             },

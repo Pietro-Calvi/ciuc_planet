@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common-game = { path = "../common/app/game" }
+crossbeam-channel = "0.5.15"
 
 
 
