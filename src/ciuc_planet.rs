@@ -779,6 +779,8 @@ mod tests {
         // Send a sunray (0 charged cell)
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
         let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
 
         // Send GenerateResourceRequest (Carbon)
         tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
