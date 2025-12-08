@@ -408,13 +408,19 @@ mod tests {
         });
 
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
+
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToOrchestrator::StartPlanetAIResult { planet_id: _}) => {},
+            _ => panic!("StartPlanetAIResult was not received within the timeout period."),
+        }
+
         thread::sleep(Duration::from_millis(50));
 
         // Send asteroid
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
         // Expect ACK
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
                 assert!(rocket.is_none(), "Planet should have NO rocket.");
             }
@@ -435,12 +441,18 @@ mod tests {
         });
 
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
+
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToOrchestrator::StartPlanetAIResult { planet_id: _}) => {},
+            _ => panic!("StartPlanetAIResult was not received within the timeout period."),
+        }
+
         thread::sleep(Duration::from_millis(50));
 
         // Send sunray → expect SunrayAck
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
                 assert_eq!(planet_id, 1, "Planet ID mismatch.");
             }
@@ -450,7 +462,7 @@ mod tests {
         // Send asteroid → expect AsteroidAck (with rocket)
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
                 assert!(rocket.is_some(), "Planet should have a rocket and survive.");
             }
@@ -474,12 +486,18 @@ mod tests {
         });
 
         tx_orch.send(OrchestratorToPlanet::StartPlanetAI).unwrap();
+
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToOrchestrator::StartPlanetAIResult { planet_id: _}) => {},
+            _ => panic!("StartPlanetAIResult was not received within the timeout period."),
+        }
+
         thread::sleep(Duration::from_millis(50));
 
         // 1° sunray → expect ACK (rocket craft)
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
                 assert_eq!(planet_id, 1);
             }
@@ -489,7 +507,7 @@ mod tests {
         // 2° sunray → expect ACK (energy cell charge)
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::SunrayAck { planet_id }) => {
                 assert_eq!(planet_id, 1);
             }
@@ -499,7 +517,7 @@ mod tests {
         // 1° asteroid → must use rocket, survive
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
                 assert!(rocket.is_some(), "First asteroid should be defended.");
             }
@@ -509,7 +527,7 @@ mod tests {
         // 2° asteroid → NEW rocket must already be rebuilt
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
 
-        match rx_orch.recv_timeout(Duration::from_millis(500)) {
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToOrchestrator::AsteroidAck { planet_id: _, rocket }) => {
                 assert!(rocket.is_some(), "Rocket should be rebuilt for second asteroid.");
             }
@@ -518,6 +536,12 @@ mod tests {
 
         // Cleanup
         tx_orch.send(OrchestratorToPlanet::StopPlanetAI).unwrap();
+
+        match rx_orch.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToOrchestrator::StopPlanetAIResult { planet_id: _}) => {},
+            _ => panic!("StopPlanetAIResult was not received within the timeout period."),
+        }
+
         drop(tx_orch);
         let _ = handle.join();
     }
