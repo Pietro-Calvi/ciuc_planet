@@ -77,17 +77,32 @@ impl CiucAI
     //funzioni per l'aggiornamento della stima sunray e asteroidi:
     fn update_sunray_esteem(&mut self, now_ms: i64) {
         if self.last_time_sunray > 0 {
-            let delta = (now_ms - self.last_time_sunray) as f64;
-            self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
-            self.count_sunrays += 1;
+            if self.count_sunrays == 0
+            {
+                self.estimate_sunray_ms = (now_ms - self.last_time_sunray) as f64;
+                self.count_sunrays += 1;
+            }
+            else {
+                let delta = (now_ms - self.last_time_sunray) as f64;
+                self.estimate_sunray_ms = update_ema(self.estimate_sunray_ms, delta, 0.3);
+                self.count_sunrays += 1;
+            }
         }
         self.last_time_sunray = now_ms;
     }
     fn update_asteroid_esteem(&mut self, now_ms: i64) {
+
         if self.last_time_asteroid > 0 {
-            let delta = (now_ms - self.last_time_asteroid) as f64;
-            self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
-            self.count_asteroids += 1;
+            if self.count_asteroids == 0
+            {
+                self.estimate_asteroid_ms = (now_ms - self.last_time_asteroid) as f64;
+                self.count_asteroids += 1;
+            }
+            else {
+                let delta = (now_ms - self.last_time_asteroid) as f64;
+                self.estimate_asteroid_ms = update_ema(self.estimate_asteroid_ms, delta, 0.3);
+                self.count_asteroids += 1;
+            }
         }
         self.last_time_asteroid = now_ms;
     }
@@ -98,6 +113,7 @@ impl CiucAI
         //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
         if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3
         {
+            println!("st: {} - {}", self.estimate_sunray_ms, self.estimate_asteroid_ms);
             self.state = AIState::StatisticState;
         }
     }
@@ -174,21 +190,25 @@ impl CiucAI
         let time_passed_last_asteroid = now - self.last_time_asteroid;
 
         let mut remove_safe_cell_cause_sunray = 0;
+
+        println!("{} - {}", time_passed_last_sunray, 0.75 * self.estimate_sunray_ms);
+
         if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms) //se ho un sunray che sta arrivando posso generare ancora più velocemente (la cella safe mi torna subito) (come invertire il polling senza farlo)
         {
+            println!("Posso una in meno");
             remove_safe_cell_cause_sunray = 1;
         }
 
         if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0) //è passato meno della metà della stima
         {
-            println!("PRIMO CASO");
+            println!("PRIMO CASO"); //DEBUG
             let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; //se c'è un sunray uso una cella in meno tanto mi torna subito
 
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero velocemente tenendomi solo una cella safe
         }
         else
         {
-            println!("PRIMO CASO");
+            println!("SECONDO CASO");//DEBUG
 
             let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; //se c'è un sunray genero con una cella in meno tanto mi torna subito
 
@@ -771,49 +791,70 @@ mod tests {
         // Go in statistic mode
 
             // send sunray
-            tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-            let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
-
-            // send asteroid
-            tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
-            let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // AsteroidAck
-
-        // send sunray
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
 
         // send asteroid
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // AsteroidAck
-        // send sunray
-        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
-
-        // send asteroid
-        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // AsteroidAck
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
 
         // send sunray
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
 
         // send asteroid
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // AsteroidAck
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+        // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+
+        //CAMBIO STATO
+
+        // send sunray
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
 
 
         // send sunray to create a rocket
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
 
         // send sunray with a smallar time out
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
         let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
 
         // send sunray with a smallar time out
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
 
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+
+        thread::sleep(Duration::from_millis(200)); //funziona perchè il sunray deve arrivare secondo la stima
         // send a GenerateResourceRequest
         tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
 
