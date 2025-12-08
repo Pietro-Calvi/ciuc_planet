@@ -831,31 +831,73 @@ mod tests {
         let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
         thread::sleep(Duration::from_millis(200));
 
-
         // send sunray to create a rocket
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
         let _ = rx_orch.recv_timeout(Duration::from_millis(50));
         thread::sleep(Duration::from_millis(100));
 
-        // send sunray with a smallar time out
+        // send sunray to charge an energy cell
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck & Rocket built
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // SunrayAck
         thread::sleep(Duration::from_millis(200));
 
-        // send sunray with a smallar time out
+        // send sunray to charge an energy cell
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck
 
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
         let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
 
-        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
-        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
-        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        // Send GenerateResourceRequest (Carbon)
+        tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
 
+        // check
+        match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+
+                println!("no carbon received, as expected");
+            },
+            Ok(_) => panic!("I should not receive carbon"),
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
         thread::sleep(Duration::from_millis(200)); //funziona perchè il sunray deve arrivare secondo la stima
+
+        // ----- Second case and a sunray is coming ----
+
         // send a GenerateResourceRequest
+        tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
+
+
+        match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToExplorer::GenerateResourceResponse { resource }) => {
+                assert!(resource.is_some(), "The resource has not been generated.");
+                match resource.unwrap() {
+                    BasicResource::Carbon(_) => assert!(true),
+                    _ => panic!("An incorrect resource has been generated."),
+                }
+            },
+            _ => panic!("No response was received for GenerateResourceRequest within the timeout period."),
+        }
+
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200)); // SunrayAck & Rocket built
+        thread::sleep(Duration::from_millis(200));
+
+        // send asteroid
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(200));
+
+        // ----- First case and a sunray is coming ----
+
         tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
 
         match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
@@ -869,7 +911,48 @@ mod tests {
             _ => panic!("No response was received for GenerateResourceRequest within the timeout period."),
         }
 
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
 
+        // ----- First case and a sunray is far away ----
+
+        // send a GenerateResourceRequest
+        tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
+
+        match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToExplorer::GenerateResourceResponse { resource }) => {
+                assert!(resource.is_some(), "The resource has not been generated.");
+                match resource.unwrap() {
+                    BasicResource::Carbon(_) => assert!(true),
+                    _ => panic!("An incorrect resource has been generated."),
+                }
+            },
+            _ => panic!("No response was received for GenerateResourceRequest within the timeout period."),
+        }
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
+
+        tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
+        thread::sleep(Duration::from_millis(700));
+
+        tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
+        let _ = rx_orch.recv_timeout(Duration::from_millis(200));
+
+        tx_expl.send(ExplorerToPlanet::GenerateResourceRequest { explorer_id, resource: BasicResourceType::Carbon }).unwrap();
+
+        // ----- Second case and a sunray is far away ----
+
+        match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+            Ok(PlanetToExplorer::GenerateResourceResponse { resource }) => {
+                assert!(resource.is_some(), "The resource has not been generated.");
+                match resource.unwrap() {
+                    BasicResource::Carbon(_) => assert!(true),
+                    _ => panic!("An incorrect resource has been generated."),
+                }
+            },
+            _ => panic!("No response was received for GenerateResourceRequest within the timeout period."),
+        }
 
     }
 
