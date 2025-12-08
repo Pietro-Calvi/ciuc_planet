@@ -320,6 +320,7 @@ impl PlanetAI for CiucAI
             },
             messages::OrchestratorToPlanet::KillPlanet =>{
                 //manca il log
+                self.log("I'm killed".to_string(), state.id(), ActorType::User, EventType::MessageOrchestratorToPlanet, "user".to_string(), Channel::Info);
                 Some(PlanetToOrchestrator::KillPlanetResult { planet_id: state.id() })
             },
             _ => None
