@@ -10,7 +10,7 @@ use common_game::logging::{ActorType, Channel, EventType, LogEvent};
 use common_game::protocols::messages;
 use common_game::protocols::messages::{PlanetToExplorer, PlanetToOrchestrator};
 
-//costanti per la generazione di risorse
+// Constants for resource generation
 mod safe {
     pub const CELLS: u32 = 3;
 }
@@ -24,14 +24,12 @@ mod statistic {
 //The state define the AI logic
 enum AIState
 {
-    SafeState, //The initial state, the world wait some data for change in StatisticState
-    StatisticState //The final state, the world use more cells when a asteroid is distant (esteem time)
+    SafeState, //Safe state, the planet generates less resources
+    StatisticState //Statistic state, the planet is less conservative: it generates resources depending on 'estimate_asteroid_ms' and 'estimate_sunray_ms'
 }
 
 
-
-// Group-defined AI struct
-pub struct CiucAI { /* your AI state here */
+pub struct CiucAI {
     state: AIState,
     number_explorers: usize,
     count_asteroids: u32,
@@ -44,7 +42,7 @@ pub struct CiucAI { /* your AI state here */
 
 
 
-//funzioni di supporto per il calcolo della stima
+// Support functions for estimate calculation
 fn update_ema(prev: f64, sample: f64, alpha: f64) -> f64 {
     alpha * sample + (1.0 - alpha) * prev
 }
@@ -75,9 +73,17 @@ impl CiucAI
         }
     }
 
-    //--------FUNZIONI PRIVATE INTERNE-----------------
+    //--------INTERNAL PRIVATE FUNCTIONS-----------------
 
-    //funzioni per l'aggiornamento della stima sunray e asteroidi:
+    ///Function for logging
+    fn log(&self, msg:String, id:u32, actor_type:ActorType, event_type: EventType, receiver:String, channel:Channel) {
+        let mut p: BTreeMap<String, String> = BTreeMap::new();
+        p.insert("msg".to_string(), msg);
+        let start_event = LogEvent::new(ActorType::Planet, id, actor_type, receiver, event_type, channel, p);
+        println!("{}", start_event);
+    }
+
+    /// Function for updating sunray esteem
     fn update_sunray_esteem(&mut self, now_ms: i64, id:u32) {
         let prev_esteem_for_log = self.estimate_sunray_ms;
         if self.last_time_sunray > 0 {
@@ -95,6 +101,8 @@ impl CiucAI
         self.last_time_sunray = now_ms;
         self.log(format!("Updated sunray esteem from {} to {}", prev_esteem_for_log, self.estimate_sunray_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
     }
+
+    /// Function for updating asteroid esteem
     fn update_asteroid_esteem(&mut self, now_ms: i64, id:u32) {
         let prev_asteroid_esteem_for_log = self.estimate_asteroid_ms;
         if self.last_time_asteroid > 0 {
@@ -113,14 +121,15 @@ impl CiucAI
         self.log(format!("Updated asteroid esteem from {} to {}", prev_asteroid_esteem_for_log, self.estimate_asteroid_ms), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
     }
 
-    //funzione per cambiare lo stato
+    ///Function for changing state
     fn change_state(&mut self, id:u32)
     {
-        if matches!(self.state, AIState::StatisticState) && self.estimate_asteroid_ms < self.estimate_sunray_ms{  //torno in safezone e provo a resistere
+        // Return to safe zone if in StatisticState and asteroid threat is greater than sunray opportunity
+        if matches!(self.state, AIState::StatisticState) && self.estimate_asteroid_ms < self.estimate_sunray_ms{
             self.state = AIState::SafeState;
             self.log("Changed AI's state into safe".to_string(), id, ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
         }
-        //per ora lo fa solo per il safe state solo tenendo conto del numero di asteroidi e sunray
+        // Transition to StatisticState if enough data is collected and asteroid threat is less than sunray opportunity
         else if matches!(self.state, AIState::SafeState) && self.count_asteroids >= 3 && self.count_sunrays >= 3 && self.estimate_asteroid_ms >= self.estimate_sunray_ms
         {
             self.state = AIState::StatisticState;
@@ -129,7 +138,7 @@ impl CiucAI
     }
 
 
-    //Funzione per costruisce un Rocket se si ha almeno una cella carica
+    ///Function for building rocket using one charged energy cell
     fn build_rocket(&self, planet_state:&mut PlanetState) -> Result<(), String>
     {
         match planet_state.full_cell() {
@@ -142,13 +151,13 @@ impl CiucAI
         }
     }
 
-    //Funzione per distruggere un asteroide (se non si ha il razzo si viene distrutti)
+    ///Function for trying to destroy an asteroid
     fn deflect_asteroid(&self, planet_state: &mut PlanetState) -> Option<Rocket> {
         planet_state.take_rocket()
     }
 
 
-    //Funzione per caricare una cella con un sunray
+    ///Function for charging an energy cell with a sunray
     fn charge_cell_with_sunray(&self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
     {
         let result = planet_state.charge_cell(sunray);
@@ -157,13 +166,13 @@ impl CiucAI
                 Ok(())
             },
             Some(_) => {
-                Err("All cells are full of charge".to_string())      //Ho tutte le celle cariche butto il sunray  (SE SI VA IN QUESTO CASO TANTE VOLTE SI PUò ANCHE IMPLEMENTARE UN AI CHE ALLORA GENERA' DI PIù!! (iIDEA PER IL FUTURO))
+                // All cells are full of charge, discard the sunray
+                Err("All cells are full of charge".to_string())
             }
         }
     }
 
-
-    //------------------Funzioni per la modalità SAFE------------------------
+    ///Function for generating carbon if there are more than 'safe_cells' cells charged
     fn generate_carbon_if_have_n_safe_cells(&self, planet_state:&mut PlanetState, generator: &Generator, safe_cells:u32) -> Result<common_game::components::resource::Carbon, String> {
         let energy_cell_charged_len = planet_state.cells_iter().filter(|c| c.is_charged()).count() as u32;
         match energy_cell_charged_len {
@@ -186,14 +195,17 @@ impl CiucAI
     }
 
 
-    //------------------Funzioni per la modalità SAFE------------------------
+    //------------------Functions for SAFE mode------------------------
+
+    ///Function for generating carbon in safe state
     fn generate_carbon_safe_state(&self, planet_state:&mut PlanetState, generator: &Generator)-> Result<common_game::components::resource::Carbon, String> {
         self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe::CELLS)
     }
 
 
-    //------------------Funzioni per la modalità STATISTICA------------------------
+    //------------------Functions for STATISTIC mode---------------------
 
+    ///Function for generating carbon in statistic state
     fn generate_carbon_statistic_state(&self, planet_state:&mut PlanetState, generator: &Generator) -> Result<common_game::components::resource::Carbon, String> {
         let now = now_ms();
         let time_passed_last_sunray = now - self.last_time_sunray;
@@ -222,15 +234,8 @@ impl CiucAI
     }
 
 
-    fn log(&self, msg:String, id:u32, actor_type:ActorType, event_type: EventType, receiver:String, channel:Channel) {
-        let mut p: BTreeMap<String, String> = BTreeMap::new();
-        p.insert("msg".to_string(), msg);
-        let start_event = LogEvent::new(ActorType::Planet, id, actor_type, receiver, event_type, channel, p);
-        println!("{}", start_event);
-    }
 
-
-    //-----------------------FUNZIONI DA CHIAMARE-------------------------
+    //-----------------------FUNCTIONS TO CALL-------------------------
     fn on_sunray(&mut self, planet_state: &mut PlanetState, sunray:Sunray) -> Result<(), String>
     {
         self.update_sunray_esteem(now_ms(), planet_state.id());
@@ -242,7 +247,7 @@ impl CiucAI
                 self.log("Rocket built".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
             }
             Err(_) => {
-                //Se non costruisce il rocket non è un errore vero e proprio, semplicemente ci ha provato
+                // If the rocket is not built, it's not a real error, it just tried
                 self.log("Didn't build any rocket".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info );
             }
         }
@@ -251,11 +256,11 @@ impl CiucAI
         Ok(res)
     }
 
-    fn on_asteroid(&mut self, planet_state: &mut PlanetState) -> Option<Rocket> //se sono stato distrutto true se vivo false
+    fn on_asteroid(&mut self, planet_state: &mut PlanetState) -> Option<Rocket> // Returns rocket if deflected, None if destroyed
     {
-        self.update_asteroid_esteem(now_ms(),planet_state.id());  //aggiorno la stima
+        self.update_asteroid_esteem(now_ms(),planet_state.id());  // Update the estimate
         let rocket = self.deflect_asteroid(planet_state);
-        if let Some(_) = rocket {                                               //appena uso il rocket almeno che non sono morto lo ricreo subito (se non ho energy cell lo creerà il prossimo sunray)
+        if let Some(_) = rocket {  // As soon as the rocket is used (unless the planet is dead) try to recreate it immediately (if no energy cell, it will be created with the next sunray)
             let mess_build = self.build_rocket(planet_state);
 
             match mess_build {
@@ -263,12 +268,12 @@ impl CiucAI
                     self.log("Rocket built".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "0".to_string(), Channel::Info );
                 }
                 Err(_) => {
-                    //Se non costruisce il rocket non è un errore vero e proprio, semplicemente ci ha provato
+                    // If the rocket is not built, it's not a real error, it just tried
                     self.log("Didn't build any rocket".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "0".to_string(), Channel::Info );
                 }
             }
 
-            self.change_state(planet_state.id()); //cambio lo stato se ho una stima utilizzabile e il pianeta non è morto
+            self.change_state(planet_state.id()); // Change the state if an estimate is usable and the planet is not dead
         }
         rocket
     }
@@ -290,13 +295,13 @@ impl CiucAI
 
 impl PlanetAI for CiucAI
 {
-    //Handel per la gestione di scambio dei messaggi con l'orchestrator
+    //Handler for managing message exchange with the orchestrator
     fn handle_orchestrator_msg(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, msg: messages::OrchestratorToPlanet) -> Option<messages::PlanetToOrchestrator> {
 
         match msg {
-            messages::OrchestratorToPlanet::Sunray(sun) => { //OK
+            messages::OrchestratorToPlanet::Sunray(sun) => {
                 self.log("Sunray received".to_string(), state.id(), ActorType::User, EventType::MessageOrchestratorToPlanet, "user".to_string(), Channel::Info);
-                let message = self.on_sunray(state, sun); //restituisce errore se tutte le celle sono cariche
+                let message = self.on_sunray(state, sun);
                 match message {
                     Ok(_) => {
                         self.log("Cell charged".to_string(), state.id(), ActorType::Orchestrator, EventType::InternalPlanetAction, "orchestrator".to_string(), Channel::Info);
@@ -306,11 +311,10 @@ impl PlanetAI for CiucAI
                     }
                 }
                 self.log("Sending SunrayAck to the orchestrator".to_string(), state.id(), ActorType::Orchestrator, EventType::MessagePlanetToOrchestrator, "orchestrator".to_string(), Channel::Trace);
-                Some(PlanetToOrchestrator::SunrayAck { planet_id: state.id() }) //restituisco messaggio con l'ack
+                Some(PlanetToOrchestrator::SunrayAck { planet_id: state.id() })
 
             },
-            messages::OrchestratorToPlanet::InternalStateRequest => { //FORSE VA RIMOSSA (MI SA CHE NON SI USA PIU)
-
+            messages::OrchestratorToPlanet::InternalStateRequest => {
                 self.log("Internal state requested".to_string(), state.id(), ActorType::User, EventType::MessageOrchestratorToPlanet, "user".to_string(), Channel::Info);
                 self.log("Sending internal state to the orchestrator".to_string(), state.id(), ActorType::Orchestrator, EventType::MessagePlanetToOrchestrator, "orchestrator".to_string(), Channel::Info);
                 Some(PlanetToOrchestrator::InternalStateResponse {
@@ -351,8 +355,7 @@ impl PlanetAI for CiucAI
                 match res_type {
                     BasicResourceType::Carbon => {
                         self.log("Generate carbon request".to_string(), state.id(), ActorType::User, EventType::MessageExplorerToPlanet, "user".to_string(), Channel::Info);
-                        let res = self.generate_carbon(state, generator);  //Cambierei in genera un tipo generale di risorsa tanto restituisce errore se la risorsa non è nella lista delle risorse generabili (implementato in planet.rs)
-                        //SEND ACK
+                        let res = self.generate_carbon(state, generator);
                         match res {
                             Ok(carbon) => {
 
@@ -370,6 +373,7 @@ impl PlanetAI for CiucAI
                         }
                     },
                     _ => {
+                        self.log("This planet can't generate this type of resource".to_string(), state.id(), ActorType::User, EventType::MessageExplorerToPlanet, "user".to_string(), Channel::Error);
                         None
                     }
                 }
@@ -393,8 +397,7 @@ impl PlanetAI for CiucAI
     }
 
 
-    //Handle per la gestione degli asteroidi
-    fn handle_asteroid(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, ) -> Option<Rocket> { //OK
+    fn handle_asteroid(&mut self, state: &mut PlanetState, generator: &Generator, combinator: &Combinator, ) -> Option<Rocket> {
         self.log("Asteroid received".to_string(), state.id(), ActorType::User, EventType::MessageOrchestratorToPlanet, "user".to_string(), Channel::Info);
         self.on_asteroid(state)
     }
@@ -402,19 +405,17 @@ impl PlanetAI for CiucAI
 
 
     fn start(&mut self, state: &PlanetState) {
-        /* startup code */
         self.log("Starting planet's AI".to_string(), state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info);
     }
 
 
-    fn stop(&mut self, state: &PlanetState) { /* stop code */
+    fn stop(&mut self, state: &PlanetState) {
         self.log("Stopping planet's AI".to_string(), state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Info);
     }
 
 }
 
-// This is the group's "export" function. It will be called by
-// the orchestrator to spawn your planet.
+
 pub fn create_planet(rx_orchestrator: Receiver<messages::OrchestratorToPlanet>, tx_orchestrator: Sender<messages::PlanetToOrchestrator>, rx_explorer: Receiver<messages::ExplorerToPlanet>, id:u32) -> Planet {
     let ai_concrete = CiucAI::new();
     let ai_box: Box<dyn PlanetAI> = Box::new(ai_concrete);
@@ -422,22 +423,10 @@ pub fn create_planet(rx_orchestrator: Receiver<messages::OrchestratorToPlanet>, 
     let gen_rules = vec![BasicResourceType::Carbon];
     let comb_rules = vec![];
 
-    // PASSA i singoli canali (non tuple) e l'AI boxed
-    Planet::new(
-        id,
-        PlanetType::A,
-        ai_box,
-        gen_rules,
-        comb_rules,
-        (rx_orchestrator, tx_orchestrator),
-        rx_explorer
+    Planet::new(id, PlanetType::A, ai_box, gen_rules, comb_rules, (rx_orchestrator, tx_orchestrator), rx_explorer
     ).expect("Planet creation failed")
 }
 
-// nessun test per:
-// internal state -> visto il commento sulla rimossione
-// CombineResourceRequest -> capire il messaggio di errore
-// test per GenerateResourceRequest in modalità statistica implemento quando decidiamo i parametri di passaggio
 
 #[cfg(test)]
 mod tests {
@@ -882,8 +871,6 @@ mod tests {
         tx_orch.send(OrchestratorToPlanet::Asteroid(Asteroid::default())).unwrap();
         let _ = rx_orch.recv_timeout(Duration::from_millis(50)); // AsteroidAck
         thread::sleep(Duration::from_millis(200));
-
-        //CAMBIO STATO
 
         // send sunray
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
