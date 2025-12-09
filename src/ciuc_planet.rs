@@ -213,23 +213,26 @@ impl CiucAI
 
         let mut remove_safe_cell_cause_sunray = 0;
 
-
-        if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms) //se ho un sunray che sta arrivando posso generare ancora più velocemente (la cella safe mi torna subito) (come invertire il polling senza farlo)
+        // If a sunray is expected soon, we can generate faster (the safe cell will return immediately)
+        if (time_passed_last_sunray as f64) > (0.75 * self.estimate_sunray_ms)
         {
             self.log("I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
             remove_safe_cell_cause_sunray = 1;
         }
 
-        if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0) //è passato meno della metà della stima
+        // If the asteroid is far away (less than half the estimated time has passed)
+        if (time_passed_last_asteroid as f64) < (self.estimate_asteroid_ms / 2.0)
         {
-            let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; //se c'è un sunray uso una cella in meno tanto mi torna subito
+            let safe_cell = statistic::FIRST - remove_safe_cell_cause_sunray; // If a sunray is expected, use one less cell as it will return immediately
             self.log( format!("the asteroid is far away so I reserve {} cells for my survival.", safe_cell), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero velocemente tenendomi solo una cella safe
+            // Generate quickly, keeping only one safe cell (or zero if sunray expected)
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell)
         }
         else
         {
-            let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; //se c'è un sunray genero con una cella in meno tanto mi torna subito
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell) //genero meno velocemente tendomi due celle SAFE (cosi po da tornare ad averne una nella prima parte)
+            let safe_cell = statistic::SECOND - remove_safe_cell_cause_sunray; // If a sunray is expected, generate with one less cell as it will return immediately
+            // Generate less quickly, keeping two SAFE cells (or one if sunray expected)
+            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell)
         }
     }
 
@@ -651,7 +654,6 @@ mod tests {
         // check the AvailableEnergyCellResponse
         match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
             Ok(PlanetToExplorer::AvailableEnergyCellResponse { available_cells }) => {
-                // La tua CiucAI restituisce hardcoded 5 per questa richiesta
                 assert_eq!(available_cells, 5,
                            "The planet returned {} available cells instead of 5", available_cells);
             },
@@ -915,7 +917,7 @@ mod tests {
         let _ = rx_orch.recv_timeout(Duration::from_millis(200));
         tx_orch.send(OrchestratorToPlanet::Sunray(Sunray::default())).unwrap();
         let _ = rx_orch.recv_timeout(Duration::from_millis(200));
-        thread::sleep(Duration::from_millis(200)); //funziona perchè il sunray deve arrivare secondo la stima
+        thread::sleep(Duration::from_millis(200));
 
         // ----- Second case and a sunray is coming ----
 
