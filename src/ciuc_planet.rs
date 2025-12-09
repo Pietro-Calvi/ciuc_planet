@@ -823,7 +823,7 @@ mod tests {
         let _ = handle.join();
     }
     #[test]
-    fn test_generate_carbon_statical_state() {
+    fn test_generate_carbon_statistic_state() {
         let (mut planet, tx_orch, rx_orch, tx_expl) = create_mock_planet();
 
         // Create an explorer
