@@ -1,9 +1,7 @@
-pub enum AIState
-{
-    SafeState, //Safe state, the planet generates less resources
-    StatisticState //Statistic state, the planet is less conservative: it generates resources depending on 'estimate_asteroid_ms' and 'estimate_sunray_ms'
+pub enum AIState {
+    SafeState,      //Safe state, the planet generates less resources
+    StatisticState, //Statistic state, the planet is less conservative: it generates resources depending on 'estimate_asteroid_ms' and 'estimate_sunray_ms'
 }
-
 
 pub struct CiucAI {
     state: AIState,
@@ -16,10 +14,8 @@ pub struct CiucAI {
     estimate_asteroid_ms: f64,
 }
 
-impl CiucAI
-{
-    pub(crate) fn new() -> Self
-    {
+impl CiucAI {
+    pub(crate) fn new() -> Self {
         CiucAI {
             state: AIState::SafeState,
             number_explorers: 0,

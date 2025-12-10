@@ -1,10 +1,10 @@
-mod ciuc_ai;
-mod esteem;
 mod actions;
 mod carbon;
+mod ciuc_ai;
+mod create_planet;
+mod esteem;
 mod handlers;
 mod logging;
-mod create_planet;
 
 pub use ciuc_ai::{AIState, CiucAI};
 pub use create_planet::create_planet;
