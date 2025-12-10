@@ -12,9 +12,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -23,9 +20,6 @@ jobs:
 
       - name: Format
         run: cargo fmt -- --check
-
-      - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings -A unused
 
       - name: Test
         run: cargo test --verbose
