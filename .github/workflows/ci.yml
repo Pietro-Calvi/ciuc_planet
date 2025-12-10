@@ -19,10 +19,10 @@ jobs:
           components: clippy
 
       - name: Format
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
       - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings -A unused
+        run: cargo clippy --workspace --exclude common-game --all-targets --all-features -- -D warnings -A unused
 
       - name: Test
-        run: cargo test --verbose
+        run: cargo test --workspace --exclude common-game --verbose
