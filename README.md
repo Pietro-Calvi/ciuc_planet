@@ -14,7 +14,7 @@ To create and use a planet with Ciuc AI:
 use ciuc::create_planet;
 
 // Assuming you have already defined these channels:
-let planet = create_planet(rx_orchestrator, tx_orchestrator, rx_explorer, 1);
+let planet = create_planet(rx_orchestrator, tx_orchestrator, rx_explorer, planet_id);
 ```
 
 The AI handles:
