@@ -16,13 +16,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          components: clippy
+          components: rustfmt, clippy
 
       - name: Format
-        run: cargo fmt --all -- --check
+        run: cargo fmt -- --check
 
       - name: Lint
-        run: cargo clippy --workspace --exclude common-game --all-targets --all-features -- -D warnings -A unused
+        run: cargo clippy --all-targets --all-features -- -D warnings -A unused
 
       - name: Test
-        run: cargo test --workspace --exclude common-game --verbose
+        run: cargo test --verbose
