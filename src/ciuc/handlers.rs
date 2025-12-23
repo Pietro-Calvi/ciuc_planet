@@ -1,3 +1,7 @@
+use common_game::logging::Participant;
+use common_game::protocols::planet_explorer::ExplorerToPlanet;
+use common_game::protocols::planet_explorer::PlanetToExplorer;
+use common_game::components::planet::DummyPlanetState;
 use crate::CiucAI;
 use crate::ciuc::esteem::now_ms;
 use common_game::components::planet::{PlanetAI, PlanetState};
@@ -5,8 +9,6 @@ use common_game::components::resource::{BasicResource, BasicResourceType, Combin
 use common_game::components::rocket::Rocket;
 use common_game::components::sunray::Sunray;
 use common_game::logging::{ActorType, Channel, EventType};
-use common_game::protocols::messages;
-use common_game::protocols::messages::{PlanetToExplorer, PlanetToOrchestrator};
 
 impl CiucAI {
     pub(crate) fn on_sunray(
@@ -20,24 +22,22 @@ impl CiucAI {
 
         match mess_build {
             Ok(_) => {
-                self.log(
-                    "Rocket built".to_string(),
-                    planet_state.id(),
-                    ActorType::User,
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, planet_state.id())),
+                    None,
                     EventType::InternalPlanetAction,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Rocket built")],
                 );
             }
             Err(_) => {
                 // If the rocket is not built, it's not a real error, it just tried
-                self.log(
-                    "Didn't build any rocket".to_string(),
-                    planet_state.id(),
-                    ActorType::User,
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, planet_state.id())),
+                    None,
                     EventType::InternalPlanetAction,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Didn't build any rocket")],
                 );
             }
         }
@@ -56,24 +56,22 @@ impl CiucAI {
 
             match mess_build {
                 Ok(_) => {
-                    self.log(
-                        "Rocket built".to_string(),
-                        planet_state.id(),
-                        ActorType::User,
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, planet_state.id())),
+                        None,
                         EventType::InternalPlanetAction,
-                        "0".to_string(),
                         Channel::Info,
+                        [("message", "Rocket built")],
                     );
                 }
                 Err(_) => {
                     // If the rocket is not built, it's not a real error, it just tried
-                    self.log(
-                        "Didn't build any rocket".to_string(),
-                        planet_state.id(),
-                        ActorType::User,
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, planet_state.id())),
+                        None,
                         EventType::InternalPlanetAction,
-                        "0".to_string(),
                         Channel::Info,
+                        [("message", "Didn't build any rocket")],
                     );
                 }
             }
@@ -85,174 +83,78 @@ impl CiucAI {
 }
 
 impl PlanetAI for CiucAI {
-    //Handler for managing message exchange with the orchestrator
-    fn handle_orchestrator_msg(
-        &mut self,
-        state: &mut PlanetState,
-        _generator: &Generator,
-        _combinator: &Combinator,
-        msg: messages::OrchestratorToPlanet,
-    ) -> Option<PlanetToOrchestrator> {
-        match msg {
-            messages::OrchestratorToPlanet::Sunray(sun) => {
-                self.log(
-                    "Sunray received".to_string(),
-                    state.id(),
-                    ActorType::User,
-                    EventType::MessageOrchestratorToPlanet,
-                    "user".to_string(),
-                    Channel::Info,
-                );
-                let message = self.on_sunray(state, sun);
-                match message {
-                    Ok(_) => {
-                        self.log(
-                            "Cell charged".to_string(),
-                            state.id(),
-                            ActorType::Orchestrator,
-                            EventType::InternalPlanetAction,
-                            "orchestrator".to_string(),
-                            Channel::Info,
-                        );
-                    }
-                    Err(e) => {
-                        self.log(
-                            e,
-                            state.id(),
-                            ActorType::User,
-                            EventType::InternalPlanetAction,
-                            "orchestrator".to_string(),
-                            Channel::Error,
-                        );
-                    }
-                }
-                self.log(
-                    "Sending SunrayAck to the orchestrator".to_string(),
-                    state.id(),
-                    ActorType::Orchestrator,
-                    EventType::MessagePlanetToOrchestrator,
-                    "orchestrator".to_string(),
-                    Channel::Trace,
-                );
-                Some(PlanetToOrchestrator::SunrayAck {
-                    planet_id: state.id(),
-                })
-            }
-            messages::OrchestratorToPlanet::InternalStateRequest => {
-                self.log(
-                    "Internal state requested".to_string(),
-                    state.id(),
-                    ActorType::User,
-                    EventType::MessageOrchestratorToPlanet,
-                    "user".to_string(),
-                    Channel::Info,
-                );
-                self.log(
-                    "Sending internal state to the orchestrator".to_string(),
-                    state.id(),
-                    ActorType::Orchestrator,
-                    EventType::MessagePlanetToOrchestrator,
-                    "orchestrator".to_string(),
-                    Channel::Info,
-                );
-                Some(PlanetToOrchestrator::InternalStateResponse {
-                    planet_id: state.id(),
-                    planet_state: state.to_dummy(),
-                })
-            }
-            messages::OrchestratorToPlanet::KillPlanet => {
-                //manca il log
-                self.log(
-                    "I'm killed".to_string(),
-                    state.id(),
-                    ActorType::User,
-                    EventType::MessageOrchestratorToPlanet,
-                    "user".to_string(),
-                    Channel::Info,
-                );
-                Some(PlanetToOrchestrator::KillPlanetResult {
-                    planet_id: state.id(),
-                })
-            }
-            _ => None,
-        }
-    }
-
     fn handle_explorer_msg(
         &mut self,
         state: &mut PlanetState,
         generator: &Generator,
         combinator: &Combinator,
-        msg: messages::ExplorerToPlanet,
+        msg: ExplorerToPlanet,
     ) -> Option<PlanetToExplorer> {
         match msg {
-            messages::ExplorerToPlanet::SupportedResourceRequest { explorer_id: e_id } => {
-                self.log(
-                    "Supported resource requested".to_string(),
-                    state.id(),
-                    ActorType::User,
+            ExplorerToPlanet::SupportedResourceRequest { explorer_id: e_id } => {
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
                     EventType::MessageExplorerToPlanet,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Supported resource requested")],
                 );
-                self.log(
-                    "Sending supported resource".to_string(),
-                    state.id(),
-                    ActorType::Explorer,
+
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::Explorer, state.id())),
+                    Some(Participant::new(ActorType::Explorer, e_id)),
                     EventType::MessagePlanetToExplorer,
-                    e_id.to_string(),
                     Channel::Info,
+                    [("message", "Sending supported resource")],
                 );
+
                 Some(PlanetToExplorer::SupportedResourceResponse {
                     resource_list: generator.all_available_recipes(),
                 })
             }
 
-            messages::ExplorerToPlanet::SupportedCombinationRequest { explorer_id: e_id } => {
-                self.log(
-                    "Supported combinations requested".to_string(),
-                    state.id(),
-                    ActorType::User,
+            ExplorerToPlanet::SupportedCombinationRequest { explorer_id: e_id } => {
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
                     EventType::MessageExplorerToPlanet,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Supported combinations requested")],
                 );
-                self.log(
-                    "Sending supported combinations".to_string(),
-                    state.id(),
-                    ActorType::Explorer,
+
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::Explorer, state.id())),
+                    Some(Participant::new(ActorType::Explorer, e_id)),
                     EventType::MessagePlanetToExplorer,
-                    e_id.to_string(),
                     Channel::Info,
+                    [("message", "Sending supported combinations")],
                 );
                 Some(PlanetToExplorer::SupportedCombinationResponse {
                     combination_list: combinator.all_available_recipes(),
                 })
             }
 
-            messages::ExplorerToPlanet::GenerateResourceRequest {
+            ExplorerToPlanet::GenerateResourceRequest {
                 explorer_id: e_id,
                 resource: res_type,
             } => match res_type {
                 BasicResourceType::Carbon => {
-                    self.log(
-                        "Generate carbon request".to_string(),
-                        state.id(),
-                        ActorType::User,
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, state.id())),
+                        None,
                         EventType::MessageExplorerToPlanet,
-                        "user".to_string(),
                         Channel::Info,
+                        [("message", "Generate carbon request")],
                     );
                     let res = self.generate_carbon(state, generator);
                     match res {
                         Ok(carbon) => {
-                            self.log(
-                                "Sending carbon to explorer".to_string(),
-                                state.id(),
-                                ActorType::Explorer,
+                            CiucAI::log_event(
+                                Some(Participant::new(ActorType::Explorer, state.id())),
+                                Some(Participant::new(ActorType::Explorer, e_id)),
                                 EventType::MessagePlanetToExplorer,
-                                e_id.to_string(),
                                 Channel::Info,
+                                [("message", "Sending carbon to explorer")],
                             );
 
                             Some(PlanetToExplorer::GenerateResourceResponse {
@@ -260,70 +162,67 @@ impl PlanetAI for CiucAI {
                             })
                         }
                         Err(err) => {
-                            self.log(
-                                err,
-                                state.id(),
-                                ActorType::User,
+                            CiucAI::log_event(
+                                Some(Participant::new(ActorType::User, state.id())),
+                                None,
                                 EventType::InternalPlanetAction,
-                                "user".to_string(),
                                 Channel::Error,
+                                [("message", err)],
                             );
                             None
                         }
                     }
                 }
                 _ => {
-                    self.log(
-                        "This planet can't generate this type of resource".to_string(),
-                        state.id(),
-                        ActorType::User,
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, state.id())),
+                        None,
                         EventType::MessageExplorerToPlanet,
-                        "user".to_string(),
                         Channel::Error,
+                        [("message", "This planet can't generate this type of resource")],
                     );
                     None
                 }
             },
 
-            messages::ExplorerToPlanet::CombineResourceRequest {
+            ExplorerToPlanet::CombineResourceRequest {
                 explorer_id: _,
                 msg: _,
             } => {
-                self.log(
-                    "Combination request".to_string(),
-                    state.id(),
-                    ActorType::User,
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
                     EventType::MessageExplorerToPlanet,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Combination request")],
                 );
-                self.log(
-                    "There aren't any combination rules for this planet".to_string(),
-                    state.id(),
-                    ActorType::User,
+
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
                     EventType::InternalPlanetAction,
-                    "user".to_string(),
                     Channel::Error,
+                    [("message", "There aren't any combination rules for this planet")],
                 );
+
                 None
             }
 
-            messages::ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: e_id } => {
-                self.log(
-                    "Available energy cells requested".to_string(),
-                    state.id(),
-                    ActorType::User,
+            ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: e_id } => {
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
                     EventType::MessageExplorerToPlanet,
-                    "user".to_string(),
                     Channel::Info,
+                    [("message", "Available energy cells requested")],
                 );
-                self.log(
-                    "Sending available energy cells".to_string(),
-                    state.id(),
-                    ActorType::Explorer,
+
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::Explorer, state.id())),
+                    Some(Participant::new(ActorType::Explorer, e_id)),
                     EventType::MessagePlanetToExplorer,
-                    e_id.to_string(),
                     Channel::Info,
+                    [("message", "Sending available energy cells")],
                 );
                 Some(PlanetToExplorer::AvailableEnergyCellResponse {
                     available_cells: state.cells_iter().len() as u32,
@@ -340,36 +239,88 @@ impl PlanetAI for CiucAI {
         _generator: &Generator,
         _combinator: &Combinator,
     ) -> Option<Rocket> {
-        self.log(
-            "Asteroid received".to_string(),
-            state.id(),
-            ActorType::User,
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, state.id())),
+            None,
             EventType::MessageOrchestratorToPlanet,
-            "user".to_string(),
             Channel::Info,
+            [("message", "Asteroid received")],
         );
         self.on_asteroid(state)
     }
 
-    fn start(&mut self, state: &PlanetState) {
-        self.log(
-            "Starting planet's AI".to_string(),
-            state.id(),
-            ActorType::User,
-            EventType::InternalPlanetAction,
-            "user".to_string(),
+    fn handle_sunray(
+        &mut self,
+        state: &mut PlanetState,
+        _generator: &Generator,
+        _combinator: &Combinator,
+        sunray: Sunray,
+    ){
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, state.id())),
+            None,
+            EventType::MessageOrchestratorToPlanet,
             Channel::Info,
+            [("message", "Sunray received")],
+        );
+        let message = self.on_sunray(state, sunray);
+        match message {
+            Ok(_) => {
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::Orchestrator, state.id())),
+                    None,
+                    EventType::InternalPlanetAction,
+                    Channel::Info,
+                    [("message", "Cell charged")],
+                );
+            }
+            Err(e) => {
+                CiucAI::log_event(
+                    Some(Participant::new(ActorType::User, state.id())),
+                    None,
+                    EventType::InternalPlanetAction,
+                    Channel::Error,
+                    [("message", e)],
+                );
+            }
+        }
+    }
+
+    fn handle_internal_state_req(
+        &mut self,
+        state: &mut PlanetState,
+        _generator: &Generator,
+        _combinator: &Combinator,
+    ) -> DummyPlanetState {
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, state.id())),
+            None,
+            EventType::MessageOrchestratorToPlanet,
+            Channel::Info,
+            [("message", "Internal state requested")],
+        );
+
+        state.to_dummy()
+    }
+
+    fn on_start(&mut self, state: &PlanetState, _generator: &Generator, _combinator: &Combinator) {
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, state.id())),
+            None,
+            EventType::InternalPlanetAction,
+            Channel::Info,
+            [("message", "Starting planet's AI")],
         );
     }
 
-    fn stop(&mut self, state: &PlanetState) {
-        self.log(
-            "Stopping planet's AI".to_string(),
-            state.id(),
-            ActorType::User,
+    fn on_stop(&mut self, state: &PlanetState, _generator: &Generator, _combinator: &Combinator) {
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, state.id())),
+            None,
             EventType::InternalPlanetAction,
-            "user".to_string(),
             Channel::Info,
+            [("message", "Stopping planet's AI")],
         );
     }
+
 }

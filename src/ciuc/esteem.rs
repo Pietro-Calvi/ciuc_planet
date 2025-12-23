@@ -1,3 +1,4 @@
+use common_game::logging::Participant;
 use crate::CiucAI;
 use crate::ciuc::AIState;
 use common_game::logging::{ActorType, Channel, EventType};
@@ -27,17 +28,19 @@ impl CiucAI {
             }
         }
         self.set_last_time_sunray(now_ms);
-        self.log(
-            format!(
-                "Updated sunray esteem from {} to {}",
-                prev_esteem_for_log,
-                self.estimate_sunray_ms()
-            ),
-            id,
-            ActorType::User,
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, id)),
+            None,
             EventType::InternalPlanetAction,
-            "user".to_string(),
             Channel::Debug,
+            [(
+                "message",
+                format!(
+                    "Updated sunray esteem from {} to {}",
+                    prev_esteem_for_log,
+                    self.estimate_sunray_ms()
+                ),
+            )],
         );
     }
 
@@ -55,18 +58,21 @@ impl CiucAI {
             }
         }
         self.set_last_time_asteroid(now_ms);
-        self.log(
-            format!(
-                "Updated asteroid esteem from {} to {}",
-                prev_asteroid_esteem_for_log,
-                self.estimate_asteroid_ms()
-            ),
-            id,
-            ActorType::User,
+        CiucAI::log_event(
+            Some(Participant::new(ActorType::User, id)),
+            None,
             EventType::InternalPlanetAction,
-            "user".to_string(),
             Channel::Debug,
+            [(
+                "message",
+                format!(
+                    "Updated asteroid esteem from {} to {}",
+                    prev_asteroid_esteem_for_log,
+                    self.estimate_asteroid_ms()
+                ),
+            )],
         );
+
     }
 
     ///Function for changing state
@@ -76,14 +82,14 @@ impl CiucAI {
             && self.estimate_asteroid_ms() < self.estimate_sunray_ms()
         {
             self.set_state(AIState::SafeState);
-            self.log(
-                "Changed AI's state into safe".to_string(),
-                id,
-                ActorType::User,
+            CiucAI::log_event(
+                Some(Participant::new(ActorType::User, id)),
+                None,
                 EventType::InternalPlanetAction,
-                "user".to_string(),
                 Channel::Debug,
+                [("message", "Changed AI's state into safe")],
             );
+
         }
         // Transition to StatisticState if enough data is collected and asteroid threat is less than sunray opportunity
         else if matches!(self.state(), AIState::SafeState)
@@ -92,14 +98,14 @@ impl CiucAI {
             && self.estimate_asteroid_ms() >= self.estimate_sunray_ms()
         {
             self.set_state(AIState::StatisticState);
-            self.log(
-                "Changed AI's state into statistic".to_string(),
-                id,
-                ActorType::User,
+            CiucAI::log_event(
+                Some(Participant::new(ActorType::User, id)),
+                None,
                 EventType::InternalPlanetAction,
-                "user".to_string(),
                 Channel::Debug,
+                [("message", "Changed AI's state into statistic")],
             );
+
         }
     }
 }

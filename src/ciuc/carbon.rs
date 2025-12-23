@@ -1,3 +1,4 @@
+use common_game::logging::Participant;
 use crate::CiucAI;
 use crate::ciuc::esteem::now_ms;
 use common_game::components::planet::PlanetState;
@@ -71,7 +72,12 @@ impl CiucAI {
         if (time_passed_last_sunray as f64)
             > (statistic::SUNRAY_IMMINENT_THRESHOLD * self.estimate_sunray_ms())
         {
-            self.log("I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.".to_string(), planet_state.id(), ActorType::User, EventType::InternalPlanetAction, "user".to_string(), Channel::Debug );
+            CiucAI::log_event(Some(Participant::new(ActorType::User, planet_state.id())), None, EventType::InternalPlanetAction, Channel::Debug, [
+                    (
+                        "message",
+                        "I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.",
+                    ),
+                ]);
             remove_safe_cell_cause_sunray = 1;
         }
 
@@ -80,16 +86,18 @@ impl CiucAI {
             < (statistic::ASTEROID_FAR_THRESHOLD * self.estimate_asteroid_ms())
         {
             let safe_cell = statistic::SAFE_CELLS_FAR_ASTEROID - remove_safe_cell_cause_sunray; // If a sunray is expected, use one less cell as it will return immediately
-            self.log(
-                format!(
-                    "the asteroid is far away so I reserve {} cells for my survival.",
-                    safe_cell
-                ),
-                planet_state.id(),
-                ActorType::User,
+            CiucAI::log_event(
+                Some(Participant::new(ActorType::User, planet_state.id())),
+                None,
                 EventType::InternalPlanetAction,
-                "user".to_string(),
                 Channel::Debug,
+                [(
+                    "message",
+                    format!(
+                        "the asteroid is far away so I reserve {} cells for my survival.",
+                        safe_cell
+                    ),
+                )],
             );
             // Generate quickly, keeping only one safe cell (or zero if sunray expected)
             self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell)

@@ -1,13 +1,15 @@
+use common_game::protocols::planet_explorer::ExplorerToPlanet;
+use common_game::protocols::orchestrator_planet::PlanetToOrchestrator;
+use common_game::protocols::orchestrator_planet::OrchestratorToPlanet;
 use crate::CiucAI;
 use common_game::components::planet::{Planet, PlanetAI, PlanetType};
 use common_game::components::resource::BasicResourceType;
-use common_game::protocols::messages;
 use crossbeam_channel::{Receiver, Sender};
 
 pub fn create_planet(
-    rx_orchestrator: Receiver<messages::OrchestratorToPlanet>,
-    tx_orchestrator: Sender<messages::PlanetToOrchestrator>,
-    rx_explorer: Receiver<messages::ExplorerToPlanet>,
+    rx_orchestrator: Receiver<OrchestratorToPlanet>,
+    tx_orchestrator: Sender<PlanetToOrchestrator>,
+    rx_explorer: Receiver<ExplorerToPlanet>,
     id: u32,
 ) -> Planet {
     let ai_concrete = CiucAI::new();
