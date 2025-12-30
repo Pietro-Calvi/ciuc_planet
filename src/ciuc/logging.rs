@@ -1,6 +1,6 @@
 use common_game::logging::Participant;
 use crate::CiucAI;
-use common_game::logging::{ActorType, Channel, EventType, LogEvent};
+use common_game::logging::{Channel, EventType, LogEvent};
 use std::collections::BTreeMap;
 
 impl CiucAI {

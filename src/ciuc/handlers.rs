@@ -228,7 +228,7 @@ impl PlanetAI for CiucAI {
                     available_cells: state.cells_iter().len() as u32,
                 })
             }
-
+            #[allow(unreachable_patterns)]
             _ => None,
         }
     }
@@ -275,11 +275,17 @@ impl PlanetAI for CiucAI {
                 );
             }
             Err(e) => {
+                let channel = if e == "All cell are full of charge"{
+                    Channel::Info
+                }else{
+                    Channel::Error
+                };
+
                 CiucAI::log_event(
                     Some(Participant::new(ActorType::User, state.id())),
                     None,
                     EventType::InternalPlanetAction,
-                    Channel::Error,
+                    channel,
                     [("message", e)],
                 );
             }
