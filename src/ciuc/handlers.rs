@@ -5,7 +5,7 @@ use common_game::components::planet::DummyPlanetState;
 use crate::CiucAI;
 use crate::ciuc::esteem::now_ms;
 use common_game::components::planet::{PlanetAI, PlanetState};
-use common_game::components::resource::{BasicResource, BasicResourceType, Combinator, Generator};
+use common_game::components::resource::{BasicResource, BasicResourceType, Combinator, ComplexResourceRequest, Generator, GenericResource};
 use common_game::components::rocket::Rocket;
 use common_game::components::sunray::Sunray;
 use common_game::logging::{ActorType, Channel, EventType};
@@ -169,7 +169,9 @@ impl PlanetAI for CiucAI {
                                 Channel::Error,
                                 [("message", err)],
                             );
-                            None
+                            Some(PlanetToExplorer::GenerateResourceResponse {
+                                resource: None,
+                            })
                         }
                     }
                 }
@@ -187,7 +189,7 @@ impl PlanetAI for CiucAI {
 
             ExplorerToPlanet::CombineResourceRequest {
                 explorer_id: _,
-                msg: _,
+                msg: mes,
             } => {
                 CiucAI::log_event(
                     Some(Participant::new(ActorType::User, state.id())),
@@ -204,8 +206,27 @@ impl PlanetAI for CiucAI {
                     Channel::Error,
                     [("message", "There aren't any combination rules for this planet")],
                 );
+                match mes {
+                    ComplexResourceRequest::Water(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                    ComplexResourceRequest::Diamond(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                    ComplexResourceRequest::Life(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                    ComplexResourceRequest::Robot(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                    ComplexResourceRequest::Dolphin(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                    ComplexResourceRequest::AIPartner(a, b) => {Some(PlanetToExplorer::CombineResourceResponse {
+                        complex_response: Err(("There aren't any combination rules for this planet".to_string(), a.to_generic() , b.to_generic())),
+                    })}
+                }
 
-                None
             }
 
             ExplorerToPlanet::AvailableEnergyCellRequest { explorer_id: e_id } => {
