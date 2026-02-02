@@ -246,7 +246,7 @@ impl PlanetAI for CiucAI {
                     [("message", "Sending available energy cells")],
                 );
                 Some(PlanetToExplorer::AvailableEnergyCellResponse {
-                    available_cells: state.cells_iter().map(|e| e.is_charged()).len() as u32,
+                    available_cells: state.cells_iter().filter(|e| e.is_charged()).count() as u32,
                 })
             }
             #[allow(unreachable_patterns)]
