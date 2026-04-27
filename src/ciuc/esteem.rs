@@ -1,6 +1,6 @@
-use common_game::logging::Participant;
 use crate::CiucAI;
 use crate::ciuc::AIState;
+use common_game::logging::Participant;
 use common_game::logging::{ActorType, Channel, EventType};
 pub fn update_ema(prev: f64, sample: f64, alpha: f64) -> f64 {
     alpha * sample + (1.0 - alpha) * prev
@@ -72,7 +72,6 @@ impl CiucAI {
                 ),
             )],
         );
-
     }
 
     ///Function for changing state
@@ -89,7 +88,6 @@ impl CiucAI {
                 Channel::Debug,
                 [("message", "Changed AI's state into safe")],
             );
-
         }
         // Transition to StatisticState if enough data is collected and asteroid threat is less than sunray opportunity
         else if matches!(self.state(), AIState::SafeState)
@@ -105,7 +103,6 @@ impl CiucAI {
                 Channel::Debug,
                 [("message", "Changed AI's state into statistic")],
             );
-
         }
     }
 }

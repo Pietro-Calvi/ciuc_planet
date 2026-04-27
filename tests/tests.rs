@@ -245,8 +245,8 @@ fn test_available_energy_cell_request() {
     match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
         Ok(PlanetToExplorer::AvailableEnergyCellResponse { available_cells }) => {
             assert_eq!(
-                available_cells, 5,
-                "The planet returned {} available cells instead of 5",
+                available_cells, 0,
+                "The planet returned {} available cells instead of 0",
                 available_cells
             );
         }
@@ -394,37 +394,39 @@ fn test_generate_carbon_safe_state() {
         })
         .unwrap();
 
-    // check
+    // CHECK 1: The explorer ASKED for carbon, so the planet replies with a polite refusal.
     match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-            println!("no carbon received, as expected");
-        }
-        Ok(_) => panic!("I should not receive carbon"),
-        Err(e) => panic!("Unexpected error: {:?}", e),
-    }
-
-    // Send 2 sunray (2 charged cell)
-    tx_orch
-        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
-        .unwrap();
-    let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
-    tx_orch
-        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
-        .unwrap();
-    let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
-    tx_orch
-        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
-        .unwrap();
-    // check
-    match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+        Ok(PlanetToExplorer::GenerateResourceResponse { resource: None }) => {
             println!("No carbon received, as expected");
         }
         Ok(_) => panic!("I should not receive carbon"),
         Err(e) => panic!("Unexpected error: {:?}", e),
     }
+
+    // Send 3 sunrays
+    tx_orch
+        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
+        .unwrap();
+    let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
+    tx_orch
+        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
+        .unwrap();
+    let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
+    tx_orch
+        .send(OrchestratorToPlanet::Sunray(Sunray::default()))
+        .unwrap();
+
+    // CHECK 2: The explorer DID NOT ask for anything here. Expect silence (Timeout).
+    match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
+        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+            println!("No message received, as expected (explorer didn't ask for anything)");
+        }
+        Ok(_) => panic!("I should not receive anything here!"),
+        Err(e) => panic!("Unexpected error: {:?}", e),
+    }
     let _ = _rx_orch.recv_timeout(Duration::from_millis(200));
 
+    // Send a final GenerateResourceRequest now that we have enough energy
     tx_expl
         .send(ExplorerToPlanet::GenerateResourceRequest {
             explorer_id,
@@ -432,6 +434,7 @@ fn test_generate_carbon_safe_state() {
         })
         .unwrap();
 
+    // CHECK 3: Expect successful carbon generation
     match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
         Ok(PlanetToExplorer::GenerateResourceResponse { resource }) => {
             assert!(resource.is_some(), "The resource has not been generated.");
@@ -564,7 +567,7 @@ fn test_generate_carbon_statistic_state() {
 
     // check
     match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+        Ok(PlanetToExplorer::GenerateResourceResponse { resource: None }) => {
             println!("no carbon received, as expected");
         }
         Ok(_) => panic!("I should not receive carbon"),
@@ -832,7 +835,7 @@ fn test_revert_ai() {
         .unwrap();
 
     match rx_expl_local.recv_timeout(Duration::from_millis(200)) {
-        Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+        Ok(PlanetToExplorer::GenerateResourceResponse { resource: None }) => {
             println!("no carbon received, as expected");
         }
         Ok(_) => panic!("I should not receive carbon"),

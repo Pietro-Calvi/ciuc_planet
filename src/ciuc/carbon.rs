@@ -1,8 +1,8 @@
-use common_game::logging::Participant;
 use crate::CiucAI;
 use crate::ciuc::esteem::now_ms;
 use common_game::components::planet::PlanetState;
 use common_game::components::resource::Generator;
+use common_game::logging::Participant;
 use common_game::logging::{ActorType, Channel, EventType};
 
 mod safe {
@@ -43,7 +43,10 @@ impl CiucAI {
                     None => Err("Should have found a charged cell, but didn't".to_string()),
                 }
             }
-            _ => Err("Shouldn't be in that case".to_string()),
+            charged_cells => Err(format!(
+                "Conserving energy: has {} cells, but needs more than {}",
+                charged_cells, safe_cells
+            )),
         }
     }
 
@@ -72,12 +75,16 @@ impl CiucAI {
         if (time_passed_last_sunray as f64)
             > (statistic::SUNRAY_IMMINENT_THRESHOLD * self.estimate_sunray_ms())
         {
-            CiucAI::log_event(Some(Participant::new(ActorType::User, planet_state.id())), None, EventType::InternalPlanetAction, Channel::Debug, [
-                    (
-                        "message",
-                        "I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.",
-                    ),
-                ]);
+            CiucAI::log_event(
+                Some(Participant::new(ActorType::User, planet_state.id())),
+                None,
+                EventType::InternalPlanetAction,
+                Channel::Debug,
+                [(
+                    "message",
+                    "I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.",
+                )],
+            );
             remove_safe_cell_cause_sunray = 1;
         }
 
