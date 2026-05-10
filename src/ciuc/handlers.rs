@@ -199,7 +199,7 @@ impl PlanetAI for CiucAI {
                             "This planet can't generate this type of resource",
                         )],
                     );
-                    None
+                    Some(PlanetToExplorer::GenerateResourceResponse { resource: None })
                 }
             },
 
