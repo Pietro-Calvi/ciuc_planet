@@ -1,7 +1,7 @@
 use crate::CiucAI;
 use crate::ciuc::AIState;
 use common_game::components::planet::PlanetState;
-use common_game::components::resource::Generator;
+use common_game::components::resource::{Carbon, Generator};
 use common_game::components::rocket::Rocket;
 use common_game::components::sunray::Sunray;
 
@@ -35,16 +35,19 @@ impl CiucAI {
         }
     }
 
+    ///Function for generating carbon
     pub(crate) fn generate_carbon(
         &self,
         planet_state: &mut PlanetState,
         generator: &Generator,
-    ) -> Result<common_game::components::resource::Carbon, String> {
-        match &self.state() {
-            AIState::SafeState => self.generate_carbon_safe_state(planet_state, generator),
-            AIState::StatisticState => {
-                self.generate_carbon_statistic_state(planet_state, generator)
-            }
-        }
+    ) -> Result<Carbon, String> {
+
+        let safe_cells = self.current_safe_cells(planet_state);
+
+        self.generate_carbon_if_have_n_safe_cells(
+            planet_state,
+            generator,
+            safe_cells,
+        )
     }
 }

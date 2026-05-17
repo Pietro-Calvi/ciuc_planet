@@ -1,9 +1,10 @@
 use crate::CiucAI;
 use crate::ciuc::esteem::now_ms;
 use common_game::components::planet::PlanetState;
-use common_game::components::resource::Generator;
+use common_game::components::resource::{Carbon, Generator};
 use common_game::logging::Participant;
 use common_game::logging::{ActorType, Channel, EventType};
+use crate::ciuc::AIState;
 
 mod safe {
     /// Number of energy cells to preserve in safe state
@@ -24,13 +25,75 @@ mod statistic {
 }
 
 impl CiucAI {
+    ///Function that returns the exact number of safe cells
+    pub(crate) fn current_safe_cells(&self, planet_state: &mut PlanetState,) -> u32 {
+        match self.state() {
+            AIState::SafeState => safe::SAFE_CELLS,
+
+            AIState::StatisticState => {
+                let now = now_ms();
+
+                let time_passed_last_sunray =
+                    now - self.last_time_sunray();
+
+                let time_passed_last_asteroid =
+                    now - self.last_time_asteroid();
+
+                let mut remove_safe_cell_cause_sunray = 0;
+
+                // If a sunray is expected soon, we can generate faster (the safe cell will return immediately)
+                if (time_passed_last_sunray as f64)
+                    > (statistic::SUNRAY_IMMINENT_THRESHOLD
+                    * self.estimate_sunray_ms())
+                {
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, planet_state.id())),
+                        None,
+                        EventType::InternalPlanetAction,
+                        Channel::Debug,
+                        [(
+                            "message",
+                            "I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.",
+                        )],
+                    );
+                    remove_safe_cell_cause_sunray = 1;
+                }
+
+                // If the asteroid is far away (less than half the estimated time has passed)
+                if (time_passed_last_asteroid as f64)
+                    < (statistic::ASTEROID_FAR_THRESHOLD
+                    * self.estimate_asteroid_ms())
+                {
+                    let safe_cell = statistic::SAFE_CELLS_FAR_ASTEROID - remove_safe_cell_cause_sunray;     // If a sunray is expected, use one less cell as it will return immediately
+                    CiucAI::log_event(
+                        Some(Participant::new(ActorType::User, planet_state.id())),
+                        None,
+                        EventType::InternalPlanetAction,
+                        Channel::Debug,
+                        [(
+                            "message",
+                            format!(
+                                "the asteroid is far away so I reserve {} cells for my survival.",
+                                safe_cell
+                            ),
+                        )],);
+                    safe_cell
+                } else {
+                    let safe_cell = statistic::SAFE_CELLS_NEAR_ASTEROID - remove_safe_cell_cause_sunray;    // If a sunray is expected, generate with one less cell as it will return immediately
+                    // Generate less quickly, keeping two SAFE cells (or one if sunray expected)
+                    safe_cell
+                }
+            }
+        }
+    }
+
     ///Function for generating carbon if there are more than 'safe_cells' cells charged
     pub(crate) fn generate_carbon_if_have_n_safe_cells(
         &self,
         planet_state: &mut PlanetState,
         generator: &Generator,
         safe_cells: u32,
-    ) -> Result<common_game::components::resource::Carbon, String> {
+    ) -> Result<Carbon, String> {
         let energy_cell_charged_len =
             planet_state.cells_iter().filter(|c| c.is_charged()).count() as u32;
         match energy_cell_charged_len {
@@ -50,68 +113,4 @@ impl CiucAI {
         }
     }
 
-    ///Function for generating carbon in safe state
-    pub(crate) fn generate_carbon_safe_state(
-        &self,
-        planet_state: &mut PlanetState,
-        generator: &Generator,
-    ) -> Result<common_game::components::resource::Carbon, String> {
-        self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe::SAFE_CELLS)
-    }
-
-    ///Function for generating carbon in statistic state
-    pub(crate) fn generate_carbon_statistic_state(
-        &self,
-        planet_state: &mut PlanetState,
-        generator: &Generator,
-    ) -> Result<common_game::components::resource::Carbon, String> {
-        let now = now_ms();
-        let time_passed_last_sunray = now - self.last_time_sunray();
-        let time_passed_last_asteroid = now - self.last_time_asteroid();
-
-        let mut remove_safe_cell_cause_sunray = 0;
-
-        // If a sunray is expected soon, we can generate faster (the safe cell will return immediately)
-        if (time_passed_last_sunray as f64)
-            > (statistic::SUNRAY_IMMINENT_THRESHOLD * self.estimate_sunray_ms())
-        {
-            CiucAI::log_event(
-                Some(Participant::new(ActorType::User, planet_state.id())),
-                None,
-                EventType::InternalPlanetAction,
-                Channel::Debug,
-                [(
-                    "message",
-                    "I estimate that a sunray may arrive, so I reduce the cells to be preserved by one.",
-                )],
-            );
-            remove_safe_cell_cause_sunray = 1;
-        }
-
-        // If the asteroid is far away (less than half the estimated time has passed)
-        if (time_passed_last_asteroid as f64)
-            < (statistic::ASTEROID_FAR_THRESHOLD * self.estimate_asteroid_ms())
-        {
-            let safe_cell = statistic::SAFE_CELLS_FAR_ASTEROID - remove_safe_cell_cause_sunray; // If a sunray is expected, use one less cell as it will return immediately
-            CiucAI::log_event(
-                Some(Participant::new(ActorType::User, planet_state.id())),
-                None,
-                EventType::InternalPlanetAction,
-                Channel::Debug,
-                [(
-                    "message",
-                    format!(
-                        "the asteroid is far away so I reserve {} cells for my survival.",
-                        safe_cell
-                    ),
-                )],
-            );
-            // Generate quickly, keeping only one safe cell (or zero if sunray expected)
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell)
-        } else {
-            let safe_cell = statistic::SAFE_CELLS_NEAR_ASTEROID - remove_safe_cell_cause_sunray; // If a sunray is expected, generate with one less cell as it will return immediately
-            // Generate less quickly, keeping two SAFE cells (or one if sunray expected)
-            self.generate_carbon_if_have_n_safe_cells(planet_state, &generator, safe_cell)
-        }
-    }
 }
